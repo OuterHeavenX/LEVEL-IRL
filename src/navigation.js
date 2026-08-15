@@ -111,10 +111,15 @@ function styles() {
 
     #fitquestScreenHost {
       min-height: 58vh;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .fitquest-screen {
       display: none;
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: clip;
       animation: fqScreenIn .18s ease;
     }
 
@@ -127,7 +132,12 @@ function styles() {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 22px;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
     }
+
+    .fitquest-screen-grid > * { min-width:0!important;max-width:100%!important;width:100%; }
 
     .fitquest-screen > .card,
     .fitquest-screen > article,
@@ -208,6 +218,15 @@ function styles() {
     @media (max-width: 720px) {
       body {
         padding-bottom: calc(var(--fq-nav-height) + env(safe-area-inset-bottom, 0px));
+      }
+
+      .app-shell {
+        width: 100%;
+        max-width: 100%;
+        padding-top: calc(max(18px, env(safe-area-inset-top, 0px)) + 10px) !important;
+        padding-left: max(12px, env(safe-area-inset-left, 0px)) !important;
+        padding-right: max(12px, env(safe-area-inset-right, 0px)) !important;
+        overflow-x: clip;
       }
 
       /* Compact native-app-style header */

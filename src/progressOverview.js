@@ -5,6 +5,7 @@ const $ = selector => document.querySelector(selector);
 let selectedRange = 30;
 let busy = false;
 let renderTimer = null;
+let chartAnimationPlayed = false;
 
 const localDateISO = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -751,7 +752,7 @@ function chartSVG(scores) {
 
   return `
     <svg
-      class="fitquest-score-chart"
+      class="fitquest-score-chart ${chartAnimationPlayed ? '' : 'animate'}"
       viewBox="0 0 ${width} ${height}"
       preserveAspectRatio="none"
       role="img"
@@ -899,6 +900,7 @@ function wireRangeButtons() {
   document.querySelectorAll('[data-fitquest-overview-range]').forEach(button => {
     button.addEventListener('click', () => {
       selectedRange = Number(button.dataset.fitquestOverviewRange) || 30;
+      chartAnimationPlayed = false;
       void refresh();
     });
   });
@@ -1008,6 +1010,8 @@ async function refresh() {
         hours when entered. Recovery uses sleep, hydration and measurement logging.
       </div>
     `;
+
+    chartAnimationPlayed = true;
 
     wireRangeButtons();
 

@@ -39,16 +39,16 @@ function styles() {
   const s = document.createElement('style');
   s.id = 'fitquestRestCampStyles';
   s.textContent = `
-    .fq-camp-card{padding:22px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:rgba(15,22,41,.94)}
+    .fq-camp-card{width:100%;min-width:0;max-width:100%;overflow:hidden;padding:22px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:rgba(15,22,41,.94)}
     .fq-camp-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
     .fq-camp-head h3{margin:3px 0 0}.fq-camp-head p{margin:0;color:#8c98b2;font-size:11px;font-weight:900;letter-spacing:.13em}
     .fq-camp-score{padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.05);color:#9ba8c0;font-size:10px;font-weight:900;white-space:nowrap}
-    .fq-categories{display:flex;gap:7px;overflow:auto;padding-bottom:5px;margin-bottom:15px}
+    .fq-categories{display:flex;width:100%;max-width:100%;gap:7px;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none;padding-bottom:5px;margin-bottom:15px}.fq-categories::-webkit-scrollbar{display:none}
     .fq-category{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#9ca8bf;border-radius:999px;padding:7px 10px;font:inherit;font-size:10px;font-weight:850;white-space:nowrap;cursor:pointer}
     .fq-category.active{color:#fff;border-color:rgba(142,116,255,.3);background:rgba(122,94,255,.16)}
-    .fq-question{font-size:clamp(20px,4vw,28px);line-height:1.25;margin:5px 0 17px}
+    .fq-question{max-width:100%;overflow-wrap:anywhere;font-size:clamp(20px,4vw,28px);line-height:1.25;margin:5px 0 17px}
     .fq-answers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-    .fq-answer{min-height:52px;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#e9edfa;font:inherit;font-weight:800;text-align:left;cursor:pointer}
+    .fq-answer{width:100%;min-width:0;min-height:52px;overflow-wrap:anywhere;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#e9edfa;font:inherit;font-weight:800;text-align:left;cursor:pointer}
     .fq-answer.correct{border-color:rgba(105,232,177,.34);background:rgba(105,232,177,.12);color:#a8f3d1}.fq-answer.wrong{border-color:rgba(255,104,115,.32);background:rgba(255,104,115,.1);color:#ffb4ba}
     .fq-trivia-note{margin-top:13px;color:#9ba7bd;font-size:12px;line-height:1.5}
     .fq-next{width:100%;min-height:46px;margin-top:13px;border:0;border-radius:13px;background:linear-gradient(135deg,#676bff,#a954ec);color:white;font:inherit;font-weight:950;cursor:pointer}
@@ -57,7 +57,7 @@ function styles() {
     .fq-bible-actions{display:flex;gap:9px;flex-wrap:wrap}.fq-bible-btn{min-height:44px;padding:0 14px;border-radius:13px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);color:#e6eafa;font:inherit;font-weight:850;cursor:pointer}
     .fq-bible-btn.primary{border:0;background:linear-gradient(135deg,#676bff,#a954ec);color:white}.fq-bible-reader{max-height:55vh;overflow:auto;padding:16px;border-radius:16px;background:rgba(5,10,22,.55);color:#dce2ef;line-height:1.75;white-space:pre-wrap}
     .fq-attribution{font-size:9px;color:#68758e;line-height:1.4}
-    @media(max-width:720px){.fq-answers{grid-template-columns:1fr}.fq-camp-card{padding:18px}}
+    @media(max-width:720px){.fq-answers{grid-template-columns:minmax(0,1fr)}.fq-camp-card{padding:16px}.fq-camp-head{min-width:0}.fq-camp-head>div{min-width:0}}
   `;
   document.head.appendChild(s);
 }
