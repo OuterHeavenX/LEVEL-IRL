@@ -421,7 +421,7 @@ function install() {
 
     <div class="fitquest-watch-note">
       ⌚ Enter the totals shown by Apple Watch / Fitness at the end of the day.
-      FitQuest stores them in the same dated cloud check-in used by your recovery data,
+      LEVEL IRL stores them in the same dated cloud check-in used by your recovery data,
       so they follow your account across devices.
     </div>
   `;
@@ -546,7 +546,7 @@ async function save() {
 
   if (message) {
     message.className = 'fitquest-activity-message';
-    message.textContent = 'Saving to your FitQuest cloud campaign…';
+    message.textContent = 'Saving to your LEVEL IRL cloud campaign…';
   }
 
   try {
@@ -554,7 +554,7 @@ async function save() {
     const data = cloud?.save;
 
     if (!data) {
-      throw new Error('No FitQuest cloud save is available.');
+      throw new Error('No LEVEL IRL cloud save is available.');
     }
 
     const today = localDateISO();

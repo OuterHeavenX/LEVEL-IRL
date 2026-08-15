@@ -10,7 +10,7 @@ function readLocal(key) {
     const value = localStorage.getItem(key);
     return value ? JSON.parse(value) : null;
   } catch (error) {
-    console.warn(`FitQuest could not read ${key}:`, error);
+    console.warn(`LEVEL IRL could not read ${key}:`, error);
     return null;
   }
 }
@@ -33,7 +33,7 @@ function saveLocalSnapshot(data, reason = 'autosave') {
       localStorage.setItem(BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_BACKUPS)));
     }
   } catch (error) {
-    console.warn('FitQuest local recovery snapshot failed:', error);
+    console.warn('LEVEL IRL local recovery snapshot failed:', error);
   }
 }
 

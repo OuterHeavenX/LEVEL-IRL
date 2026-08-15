@@ -262,7 +262,7 @@ export default {
         return await chapter(request, env, url);
       }
     } catch (error) {
-      console.error('FitQuest YouVersion route error:', error);
+      console.error('LEVEL IRL YouVersion route error:', error);
 
       return json(
         {

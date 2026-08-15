@@ -220,7 +220,7 @@ export default {
         if (account?.email_verified_at) return json({ ok: true, already_verified: true });
         const token = await createAuthToken(env, user.id, 'verify_email', VERIFY_TOKEN_MINUTES);
         const verifyUrl = `${url.origin}/?verify=${encodeURIComponent(token)}`;
-        const delivery = await sendEmail(env, { to: user.email, subject: 'Verify your FitQuest email', html: authEmailHtml({ heading: 'Verify your FitQuest email', body: 'Confirm this email address for your FitQuest account. This link expires in 24 hours.', buttonText: 'Verify Email', url: verifyUrl }) });
+        const delivery = await sendEmail(env, { to: user.email, subject: 'Verify your LEVEL IRL email', html: authEmailHtml({ heading: 'Verify your LEVEL IRL email', body: 'Confirm this email address for your LEVEL IRL account. This link expires in 24 hours.', buttonText: 'Verify Email', url: verifyUrl }) });
         return json({ ok: true, delivered: delivery.sent, delivery_error: delivery.sent ? null : delivery.reason });
       } catch (error) { return json({ ok: false, error: error.message || String(error) }, 500); }
     }
@@ -245,14 +245,14 @@ export default {
         if (user) {
           const token = await createAuthToken(env, user.id, 'reset_password', RESET_TOKEN_MINUTES);
           const resetUrl = `${url.origin}/?reset=${encodeURIComponent(token)}`;
-          const delivery = await sendEmail(env, { to: user.email, subject: 'Reset your FitQuest password', html: authEmailHtml({ heading: 'Reset your FitQuest password', body: 'Use this secure link to choose a new password. This link expires in 60 minutes.', buttonText: 'Reset Password', url: resetUrl }) });
+          const delivery = await sendEmail(env, { to: user.email, subject: 'Reset your LEVEL IRL password', html: authEmailHtml({ heading: 'Reset your LEVEL IRL password', body: 'Use this secure link to choose a new password. This link expires in 60 minutes.', buttonText: 'Reset Password', url: resetUrl }) });
           delivered = delivery.sent;
           deliveryError = delivery.sent ? null : delivery.reason;
         }
-        return json({ ok: true, message: 'If that email belongs to a FitQuest account, a reset link will be sent.', delivered, delivery_error: deliveryError });
+        return json({ ok: true, message: 'If that email belongs to a LEVEL IRL account, a reset link will be sent.', delivered, delivery_error: deliveryError });
       } catch (error) {
         console.error('Forgot password error:', error);
-        return json({ ok: true, message: 'If that email belongs to a FitQuest account, a reset link will be sent.' });
+        return json({ ok: true, message: 'If that email belongs to a LEVEL IRL account, a reset link will be sent.' });
       }
     }
 

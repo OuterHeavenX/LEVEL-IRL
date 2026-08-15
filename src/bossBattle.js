@@ -500,7 +500,7 @@ async function requestWorkoutStrike() {
       new Date().toISOString();
 
     const ok = await writeSave(data);
-    if (!ok) throw new Error('FitQuest could not submit this strike.');
+    if (!ok) throw new Error('LEVEL IRL could not submit this strike.');
 
     await refresh();
 
@@ -534,7 +534,7 @@ async function requestActivityStrike() {
       new Date().toISOString();
 
     const ok = await writeSave(data);
-    if (!ok) throw new Error('FitQuest could not submit this field strike.');
+    if (!ok) throw new Error('LEVEL IRL could not submit this field strike.');
 
     await refresh();
 

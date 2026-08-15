@@ -991,7 +991,7 @@ async function refresh() {
         <div class="fitquest-overview-subcard">
           <h4>30-day consistency map</h4>
           <p>
-            Brighter days mean more of your FitQuest systems were completed and logged.
+            Brighter days mean more of your LEVEL IRL systems were completed and logged.
           </p>
 
           <div class="fitquest-heatmap">
@@ -1024,7 +1024,7 @@ async function refresh() {
         <p class="eyebrow">CAMPAIGN OVERVIEW</p>
         <h3 style="margin:6px 0">Overall Progress</h3>
         <p style="color:#8f9bb5">
-          Progress data is temporarily unavailable. Your underlying FitQuest save was not changed.
+          Progress data is temporarily unavailable. Your underlying LEVEL IRL save was not changed.
         </p>
       `;
     }

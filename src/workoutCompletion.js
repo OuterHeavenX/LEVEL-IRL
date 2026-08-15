@@ -267,7 +267,7 @@ async function submitStrike() {
     workout.bossStrikeRequestedAt = new Date().toISOString();
 
     const ok = await writeSave(data);
-    if (!ok) throw new Error('FitQuest could not save this strike.');
+    if (!ok) throw new Error('LEVEL IRL could not save this strike.');
 
     window.dispatchEvent(new CustomEvent('fitquest:boss-strike-requested'));
 
@@ -320,7 +320,7 @@ async function endAdventure() {
       `${exerciseCount(workout)} moves completed · +${workout.completionXp} completion XP`;
 
     const ok = await writeSave(data);
-    if (!ok) throw new Error('FitQuest could not end this Adventure.');
+    if (!ok) throw new Error('LEVEL IRL could not end this Adventure.');
 
     const newStats = calculateStats(data);
 

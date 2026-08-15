@@ -1,4 +1,4 @@
-/* FitQuest Workout History — v0.6 patch */
+/* LEVEL IRL Workout History — v0.6 patch */
 .history-panel{padding:22px;margin-top:14px;position:relative;overflow:hidden}
 .history-panel:after{content:"ARCHIVE";position:absolute;right:-12px;top:18px;font-weight:900;font-size:52px;letter-spacing:.12em;color:rgba(139,124,255,.035);pointer-events:none}
 .history-head-actions{display:flex;align-items:center;gap:8px;position:relative;z-index:1}

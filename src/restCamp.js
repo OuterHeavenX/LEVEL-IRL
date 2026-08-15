@@ -153,7 +153,7 @@ async function loadVerse() {
     stateEl.hidden = false;
     stateEl.innerHTML = `
       <strong>📖 Verse of the Day is temporarily unavailable.</strong><br>
-      ${String(error?.message || 'FitQuest could not reach YouVersion.')}
+      ${String(error?.message || 'LEVEL IRL could not reach YouVersion.')}
     `;
   }
 }

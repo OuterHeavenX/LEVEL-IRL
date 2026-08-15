@@ -1,6 +1,6 @@
-# FitQuest — Vite Edition
+# LEVEL IRL — Vite Edition
 
-FitQuest is a mobile-first fitness RPG built with vanilla JavaScript ES modules and Vite.
+LEVEL IRL is a mobile-first fitness RPG built with vanilla JavaScript ES modules and Vite.
 
 ## Requirements
 
@@ -28,7 +28,7 @@ The production bundle is written to `dist/`.
 ## Project structure
 
 ```text
-fitquest-vite/
+level-irl-vite/
 ├── index.html
 ├── package.json
 ├── vite.config.js
@@ -47,7 +47,7 @@ fitquest-vite/
 
 ## Save compatibility
 
-The conversion intentionally preserves the existing localStorage key (`fitquest-save-v1`). Running this version on the same origin/host preserves compatible FitQuest saves already stored by the browser.
+LEVEL IRL intentionally preserves the legacy localStorage key (`fitquest-save-v1`). Running this version on the same origin/host preserves compatible saves created before the product rename.
 
 Note: browser localStorage is origin-specific. If the hostname or port changes, the browser may treat it as a different storage origin even though the app uses the same key.
 

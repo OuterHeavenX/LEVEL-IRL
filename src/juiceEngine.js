@@ -730,7 +730,7 @@ function pumpModalQueue() {
   overlay.innerHTML = `
     <div class="fitquest-juice-card" role="dialog" aria-modal="true">
       <div class="fitquest-juice-icon">${config.icon || '✨'}</div>
-      <p class="fitquest-juice-kicker">${config.kicker || 'FITQUEST'}</p>
+      <p class="fitquest-juice-kicker">${config.kicker || 'LEVEL IRL'}</p>
       <h2>${config.title || 'Campaign Updated'}</h2>
       <p>${config.message || ''}</p>
 

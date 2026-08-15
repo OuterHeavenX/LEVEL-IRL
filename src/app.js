@@ -593,7 +593,7 @@ function renderLibrary() {
         >
           <span>＋</span>
           <strong>New Move</strong>
-          <small>Teach FitQuest</small>
+          <small>Teach LEVEL IRL</small>
         </button>
       `;
 
@@ -1471,7 +1471,7 @@ function openExerciseDialog(
         ? 'Edit Exercise'
         : exercise
         ? `Log ${exercise.name}`
-        : 'Teach FitQuest a Move';
+        : 'Teach LEVEL IRL a Move';
 
   $('#exerciseEditIndex')
     .value =

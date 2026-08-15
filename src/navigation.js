@@ -498,7 +498,7 @@ function makeShell() {
 
   const nav = document.createElement('nav');
   nav.id = 'fitquestAppNav';
-  nav.setAttribute('aria-label', 'FitQuest sections');
+  nav.setAttribute('aria-label', 'LEVEL IRL sections');
 
   nav.innerHTML = SCREENS.map(screen => `
     <button
