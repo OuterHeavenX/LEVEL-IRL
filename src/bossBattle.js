@@ -5,21 +5,14 @@ import { workoutBattlePower } from './lib/progression.js';
 
 const $ = selector => document.querySelector(selector);
 
-const BOSS = {
-  id: 'iron-warden-v1',
-  name: 'The Iron Warden',
-  title: 'Gatekeeper of the First Forge',
-  icon: '🛡️',
-  maxHp: 600,
-  rewardXp: 100,
-  loot: {
-    id: 'iron-warden-sigil',
-    name: 'Sigil of the First Forge',
-    icon: '🔱',
-    rarity: 'Rare',
-    description: 'Proof that the First Forge has fallen.'
-  }
-};
+const BOSSES = [
+  { id:'iron-warden-v1', name:'The Iron Warden', title:'Gatekeeper of the First Forge', icon:'🛡️', maxHp:600, rewardXp:100, loot:{ id:'iron-warden-sigil', name:'Sigil of the First Forge', icon:'🔱', rarity:'Rare', description:'Proof that the First Forge has fallen.' } },
+  { id:'marsh-hydra-v1', name:'The Marsh Hydra', title:'Many-Headed Terror of the Lowlands', icon:'🐲', maxHp:850, rewardXp:150, loot:{ id:'hydra-heart', name:'Hydra Heart', icon:'💚', rarity:'Epic', description:'A living ember of relentless endurance.' } },
+  { id:'storm-colossus-v1', name:'The Storm Colossus', title:'Titan Above the Thunder Pass', icon:'⚡', maxHp:1150, rewardXp:225, loot:{ id:'storm-core', name:'Storm Core', icon:'💠', rarity:'Epic', description:'Power drawn from every step forward.' } },
+  { id:'void-champion-v1', name:'The Void Champion', title:'Final Rival of the First Campaign', icon:'🗡️', maxHp:1500, rewardXp:350, loot:{ id:'void-crown', name:'Crown of Resolve', icon:'👑', rarity:'Legendary', description:'The mark of an unbreakable adventurer.' } }
+];
+
+let BOSS = BOSSES[0];
 
 let busy = false;
 let strikeBusy = false;
@@ -216,6 +209,9 @@ function ensureBoss(data) {
   data.ui.rpg ||= {};
   data.ui.rpg.inventory ||= [];
   data.ui.rpg.bosses ||= {};
+
+  BOSS = BOSSES.find(definition => !data.ui.rpg.bosses[definition.id]?.defeated)
+    || BOSSES[BOSSES.length - 1];
 
   data.ui.rpg.bosses[BOSS.id] ||= {
     id: BOSS.id,
@@ -614,7 +610,7 @@ function render(data) {
 
         <div>
           <p class="fitquest-boss-eyebrow">
-            WEEKLY BOSS · FIRST FORGE
+            CAMPAIGN BOSS ${BOSSES.findIndex(item => item.id === BOSS.id) + 1} / ${BOSSES.length}
           </p>
 
           <h3>${BOSS.name}</h3>
@@ -692,7 +688,9 @@ function render(data) {
     <p class="fitquest-boss-callout">
       ${
         boss.defeated
-          ? 'The gate is broken. The First Forge has fallen.'
+          ? BOSS.id === BOSSES[BOSSES.length - 1].id
+            ? 'Campaign cleared. Your next chapter is waiting.'
+            : 'Victory secured. The next boss will appear automatically.'
           : 'Log moves all day, then strike whenever you want. Saving new Apple Watch totals can charge a separate Field Strike.'
       }
     </p>

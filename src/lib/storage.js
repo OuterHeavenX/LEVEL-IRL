@@ -1,6 +1,41 @@
 const LEGACY_KEY = 'fitquest-save-v1';
+const SHADOW_KEY = 'fitquest-save-shadow-v2';
+const BACKUP_KEY = 'fitquest-save-backups-v2';
+const MAX_BACKUPS = 8;
 const clone = value => JSON.parse(JSON.stringify(value));
 let lastCloudUpdatedAt = null;
+
+function readLocal(key) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : null;
+  } catch (error) {
+    console.warn(`FitQuest could not read ${key}:`, error);
+    return null;
+  }
+}
+
+function saveLocalSnapshot(data, reason = 'autosave') {
+  try {
+    const snapshot = {
+      savedAt: new Date().toISOString(),
+      reason,
+      data: clone(data)
+    };
+    localStorage.setItem(SHADOW_KEY, JSON.stringify(snapshot));
+
+    const backups = readLocal(BACKUP_KEY) || [];
+    const latest = backups[0];
+    const lastMinute = latest &&
+      Date.now() - Date.parse(latest.savedAt || 0) < 60000;
+    if (!lastMinute || reason !== 'autosave') {
+      backups.unshift(snapshot);
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_BACKUPS)));
+    }
+  } catch (error) {
+    console.warn('FitQuest local recovery snapshot failed:', error);
+  }
+}
 
 const DAY_1_DATE = '2026-07-31';
 const DAY_2_DATE = '2026-08-01';
@@ -47,6 +82,32 @@ function recoverDay2Workout(data) {
   return data;
 }
 
+function normalizeWorkouts(workouts = []) {
+  const byDate = new Map();
+  for (const workout of workouts) {
+    if (!workout || workout.transient) continue;
+    const date = String(workout.date || '').trim();
+    if (!date) continue;
+    const current = byDate.get(date);
+    if (!current) {
+      byDate.set(date, { ...workout, exercises: [...(workout.exercises || [])] });
+      continue;
+    }
+    const known = new Set(current.exercises.map(item => item.id || item.loggedAt).filter(Boolean));
+    for (const exercise of (workout.exercises || [])) {
+      const key = exercise.id || exercise.loggedAt;
+      if (!key || !known.has(key)) current.exercises.push(exercise);
+      if (key) known.add(key);
+    }
+    current.completed ||= workout.completed;
+    current.completedAt ||= workout.completedAt;
+    current.note ||= workout.note;
+  }
+  return [...byDate.values()]
+    .filter(workout => workout.exercises.length || workout.completed)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function mergeSave(saved, seed) {
   const merged = clone(seed);
   if (!saved || typeof saved !== 'object') return merged;
@@ -56,7 +117,9 @@ export function mergeSave(saved, seed) {
   merged.profile.heightDisplay ||= saved.profile?.heightDisplay || null;
   merged.profile.heightInches ||= saved.profile?.heightInches || null;
   merged.profile.heightCm ||= saved.profile?.heightCm || null;
-  merged.workouts = Array.isArray(saved.workouts) && saved.workouts.length ? saved.workouts : merged.workouts;
+  merged.workouts = normalizeWorkouts(
+    Array.isArray(saved.workouts) && saved.workouts.length ? saved.workouts : merged.workouts
+  );
   merged.nutrition = Array.isArray(saved.nutrition) ? saved.nutrition : [];
   merged.checkIns = Array.isArray(saved.checkIns) ? saved.checkIns : [];
   merged.ui = { ...merged.ui, ...(saved.ui || {}) };
@@ -117,26 +180,52 @@ export async function checkCloudForNewer() {
 export async function loadSave(seed) {
   try {
     const cloud = await fetchCloudSave();
-    if (cloud.save) return mergeSave(cloud.save, seed);
+    if (cloud.save) {
+      const merged = mergeSave(cloud.save, seed);
+      saveLocalSnapshot(merged, 'cloud-load');
+      return merged;
+    }
     const legacyText = localStorage.getItem(LEGACY_KEY);
     if (legacyText) {
       try {
         const migrated = mergeSave(JSON.parse(legacyText), seed);
+        saveLocalSnapshot(migrated, 'legacy-migration');
         await sendCloudSave(migrated);
-        localStorage.removeItem(LEGACY_KEY);
+        // Keep the legacy record as an extra recovery source. It is intentionally
+        // not deleted until the user clears browser storage themselves.
         return migrated;
       } catch (error) { console.error('Legacy save migration failed:', error); }
     }
-    return clone(seed);
+    const fresh = clone(seed);
+    saveLocalSnapshot(fresh, 'new-campaign');
+    return fresh;
   } catch (error) {
     console.error('Cloud load failed:', error);
-    return clone(seed);
+    const shadow = readLocal(SHADOW_KEY)?.data;
+    const legacy = readLocal(LEGACY_KEY);
+    const recovered = shadow || legacy;
+    if (recovered) {
+      notifySync('offline-recovery');
+      return mergeSave(recovered, seed);
+    }
+
+    // Do not return seed data after a transient cloud failure. That could make a
+    // real campaign look empty and later overwrite it when connectivity returns.
+    notifySync('error', { error: 'Cloud save unavailable; no local recovery copy found.' });
+    throw error;
   }
 }
 
 export async function writeSave(data) {
+  saveLocalSnapshot(data, 'autosave');
   try { await sendCloudSave(data); return true; }
   catch (error) { console.error('Cloud save failed:', error); return false; }
+}
+
+export function getLocalRecoveryInfo() {
+  const shadow = readLocal(SHADOW_KEY);
+  const backups = readLocal(BACKUP_KEY) || [];
+  return { savedAt: shadow?.savedAt || null, backupCount: backups.length };
 }
 
 export function resetSave() { localStorage.removeItem(LEGACY_KEY); }

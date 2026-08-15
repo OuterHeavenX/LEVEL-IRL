@@ -25,6 +25,21 @@ let state = null;
 let titleTapCount = 0;
 let appStarted = false;
 let cloudSaveTimer = null;
+let todayDraft = null;
+
+const exerciseIcon = (name, type = 'strength', fallback = '') => {
+  if (fallback && fallback !== '⚔️') return fallback;
+  const value = String(name || '').toLowerCase();
+  const icons = [
+    [/treadmill|run|jog|sprint/, '🏃'], [/walk|hike/, '🥾'], [/bike|cycle|spin/, '🚴'],
+    [/row/, '🚣'], [/swim/, '🏊'], [/jump rope|skipping/, '🪢'], [/stair|step/, '🪜'],
+    [/bench|chest press|push.?up/, '🏋️'], [/curl|bicep/, '💪'], [/shoulder|overhead press/, '🙆'],
+    [/deadlift/, '🏗️'], [/squat|leg press/, '🦵'], [/lunge/, '🤺'], [/calf/, '🦶'],
+    [/pull.?up|lat pull/, '🧗'], [/plank|core|crunch|sit.?up/, '🧘'], [/fly|deltoid/, '🪽'],
+    [/yoga|stretch|mobility/, '🤸'], [/boxing|punch|kickbox/, '🥊'], [/dance/, '💃']
+  ];
+  return icons.find(([pattern]) => pattern.test(value))?.[1] || (type === 'cardio' ? '❤️' : '🏋️');
+};
 
 const $ = selector =>
   document.querySelector(selector);
@@ -82,6 +97,7 @@ function todaysWorkout() {
     const number =
       state.workouts.length + 1;
 
+    if (todayDraft?.date === today) return todayDraft;
     workout = {
       id:
         `${today}-day-${number}-${Date.now()}`,
@@ -98,12 +114,13 @@ function todaysWorkout() {
             minute: '2-digit'
           }
         ),
+      startedAt: new Date().toISOString(),
       note:
         'A new adventure begins.',
-      exercises: []
+      exercises: [],
+      transient: true
     };
-
-    state.workouts.push(workout);
+    todayDraft = workout;
   }
 
   return workout;
@@ -479,8 +496,7 @@ function renderWorkout(workout) {
             >
               <div class="workout-icon">
                 ${escapeHtml(
-                  e.icon ||
-                  '⚔️'
+                  exerciseIcon(e.name, e.type, e.icon)
                 )}
               </div>
 
@@ -548,8 +564,7 @@ function renderLibrary() {
             >
               <span>
                 ${escapeHtml(
-                  e.icon ||
-                  '⚔️'
+                  exerciseIcon(e.name, e.type, e.icon)
                 )}
               </span>
 
@@ -1541,12 +1556,7 @@ function saveExercise(ev) {
   const icon =
     $('#exerciseIcon')
       .value
-      .trim() ||
-    (
-      type === 'cardio'
-        ? '🏃'
-        : '⚔️'
-    );
+      .trim() || exerciseIcon(name, type);
 
   const duration =
     +$('#exerciseDuration')
@@ -1556,9 +1566,11 @@ function saveExercise(ev) {
     +$('#exerciseDistance')
       .value || 0;
 
+  const loggedAt = new Date().toISOString();
   const entry =
     type === 'cardio'
       ? {
+          id: `exercise-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           type,
           name,
           duration,
@@ -1568,6 +1580,7 @@ function saveExercise(ev) {
             $('#exerciseDistanceUnit')
               .value,
           icon,
+          loggedAt,
           xp:
             nextExerciseXP(
               type,
@@ -1577,6 +1590,7 @@ function saveExercise(ev) {
             )
         }
       : {
+          id: `exercise-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           type,
           name,
           sets:
@@ -1591,6 +1605,7 @@ function saveExercise(ev) {
               .trim() ||
             null,
           icon,
+          loggedAt,
           xp:
             nextExerciseXP(
               type,
@@ -1603,13 +1618,20 @@ function saveExercise(ev) {
     $('#exerciseEditIndex')
       .value;
 
+  const activeWorkout = todaysWorkout();
+  if (activeWorkout.transient) {
+    delete activeWorkout.transient;
+    state.workouts.push(activeWorkout);
+    todayDraft = null;
+  }
+
   if (editIndex !== '') {
-    todaysWorkout()
+    activeWorkout
       .exercises[
         +editIndex
-      ] = entry;
+      ] = { ...activeWorkout.exercises[+editIndex], ...entry };
   } else {
-    todaysWorkout()
+    activeWorkout
       .exercises.push(
         entry
       );
@@ -2126,6 +2148,14 @@ function createNewWorkout(ev) {
     state.workouts
       .length + 1;
 
+  const existingWorkout = state.workouts.find(workout => workout.date === dateValue);
+  if (existingWorkout) {
+    $('#newWorkoutDialog').close();
+    toast(`📅 ${dateValue} already has a workout. Opening that record instead.`);
+    render();
+    return;
+  }
+
   state.workouts.push({
     id:
       `${dateValue}-day-${number}-${Date.now()}`,
@@ -2147,6 +2177,9 @@ function createNewWorkout(ev) {
 
     startTimeExact:
       time,
+
+    startedAt:
+      new Date().toISOString(),
 
     note:
       $('#newWorkoutNote')
