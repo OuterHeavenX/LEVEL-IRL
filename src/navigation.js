@@ -1,6 +1,7 @@
 import './rpgExpansion.js';
 import './progressOverview.js';
 import './juiceEngine.js';
+import './superJuice.js';
 import './restCamp.js';
 import './characterProgression.js';
 const $ = selector => document.querySelector(selector);
@@ -47,6 +48,8 @@ function styles() {
     }
 
     .fitquest-nav-btn {
+      position: relative;
+      overflow: hidden;
       min-width: 0;
       min-height: 48px;
       display: flex;
@@ -83,10 +86,28 @@ function styles() {
         0 8px 24px rgba(80, 60, 180, .16);
     }
 
+    .fitquest-nav-btn.active::after {
+      content: "";
+      position: absolute;
+      left: 18%; right: 18%; bottom: 2px;
+      height: 3px;
+      border-radius: 99px;
+      background: linear-gradient(90deg,#68e6d2,#9e75ff,#ff78d7);
+      box-shadow: 0 0 14px #8b7cff;
+      animation: fqNavBeam .35s cubic-bezier(.2,.8,.2,1) both;
+    }
+
     .fitquest-nav-icon {
       font-size: 16px;
       line-height: 1;
+      transition: transform .3s cubic-bezier(.2,.9,.25,1.35), filter .3s ease;
     }
+
+    .fitquest-nav-btn:hover .fitquest-nav-icon { transform: translateY(-2px) rotate(-5deg) scale(1.12); }
+    .fitquest-nav-btn.active .fitquest-nav-icon { transform: translateY(-2px) scale(1.2); filter: drop-shadow(0 0 9px rgba(160,130,255,.8)); animation: fqNavIconPop .42s cubic-bezier(.2,.9,.2,1.35); }
+
+    @keyframes fqNavBeam { from{transform:scaleX(0);opacity:0} to{transform:scaleX(1);opacity:1} }
+    @keyframes fqNavIconPop { 0%{transform:scale(.7) rotate(-12deg)} 65%{transform:scale(1.3) rotate(5deg)} 100%{transform:translateY(-2px) scale(1.2)} }
 
     #fitquestScreenHost {
       min-height: 58vh;
@@ -258,7 +279,7 @@ function styles() {
         top: auto;
         z-index: 9990;
         margin: 0;
-        grid-template-columns: repeat(7, 1fr);
+        grid-template-columns: repeat(7, minmax(44px, 1fr));
         gap: 3px;
         padding: 6px;
         border-radius: 19px;
@@ -266,16 +287,20 @@ function styles() {
       }
 
       .fitquest-nav-btn {
-        min-height: 56px;
+        min-height: 52px;
         padding: 6px 2px;
         gap: 3px;
         flex-direction: column;
-        font-size: 9px;
+        font-size: 0;
       }
 
       .fitquest-nav-icon {
-        font-size: 18px;
+        font-size: 20px;
       }
+
+      .fitquest-nav-btn.active { min-width: 62px; }
+      .fitquest-nav-btn.active > span:last-child { display:block;font-size:8px;line-height:1;animation:fqLabelIn .25s ease both; }
+      @keyframes fqLabelIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
 
       #fitquestScreenHost {
         min-height: 72vh;
@@ -359,9 +384,8 @@ function styles() {
         right: 6px;
       }
 
-      .fitquest-nav-btn {
-        font-size: 8px;
-      }
+      #fitquestAppNav { overflow-x:auto;scrollbar-width:none; }
+      #fitquestAppNav::-webkit-scrollbar{display:none}
 
       .topbar > div:first-child h1 {
         font-size: 23px !important;
