@@ -1,7 +1,15 @@
-const LEGACY_KEY = 'fitquest-save-v1';
+import { localDateISO } from './dom.js';
+
+// The main save keeps the original key so saves from before the rename still load.
+const SAVE_KEY = 'fitquest-save-v1';
+// Written by older versions on every save; read only as a fallback for migration.
 const SHADOW_KEY = 'fitquest-save-shadow-v2';
 const BACKUP_KEY = 'fitquest-save-backups-v2';
+// Set once SAVE_KEY becomes the authoritative copy.
+const FORMAT_KEY = 'fitquest-save-format';
+const FORMAT = 'local-v1';
 const MAX_BACKUPS = 8;
+const BACKUP_INTERVAL_MS = 60000;
 const clone = value => JSON.parse(JSON.stringify(value));
 
 function readLocal(key) {
@@ -14,35 +22,25 @@ function readLocal(key) {
   }
 }
 
-function saveLocalSnapshot(data, reason = 'autosave') {
+// Keep a rolling set of recovery backups, at most one per minute for autosaves.
+function saveBackup(json, reason) {
   try {
-    const snapshot = {
-      savedAt: new Date().toISOString(),
-      reason,
-      data: clone(data)
-    };
-    localStorage.setItem(SHADOW_KEY, JSON.stringify(snapshot));
-
     const backups = readLocal(BACKUP_KEY) || [];
     const latest = backups[0];
-    const lastMinute = latest &&
-      Date.now() - Date.parse(latest.savedAt || 0) < 60000;
-    if (!lastMinute || reason !== 'autosave') {
-      backups.unshift(snapshot);
-      localStorage.setItem(BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_BACKUPS)));
-    }
+    const recent = latest && Date.now() - Date.parse(latest.savedAt || 0) < BACKUP_INTERVAL_MS;
+    if (recent && reason === 'autosave') return;
+    backups.unshift({ savedAt: new Date().toISOString(), reason, data: JSON.parse(json) });
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_BACKUPS)));
   } catch (error) {
-    console.warn('LEVEL IRL local recovery snapshot failed:', error);
+    // Backups are best-effort; drop them rather than block the real save.
+    console.warn('LEVEL IRL recovery backup failed:', error);
+    try { localStorage.removeItem(BACKUP_KEY); } catch {}
   }
 }
 
 const DAY_1_DATE = '2026-07-31';
 const DAY_2_DATE = '2026-08-01';
 const DAY_1_EXERCISES = ['treadmill','bicep curl','shoulder press','vertical row','seated leg curl','deltoid fly'];
-
-function notifySync(status, detail = {}) {
-  window.dispatchEvent(new CustomEvent('fitquest:sync', { detail: { status, ...detail } }));
-}
 
 function recoverDay2Workout(data) {
   data.ui ||= {};
@@ -107,13 +105,13 @@ export function mergeSave(saved, seed) {
   merged.profile.heightInches ||= saved.profile?.heightInches || null;
   merged.profile.heightCm ||= saved.profile?.heightCm || null;
   merged.workouts = normalizeWorkouts(
-    Array.isArray(saved.workouts) && saved.workouts.length ? saved.workouts : merged.workouts
+    Array.isArray(saved.workouts) ? saved.workouts : merged.workouts
   );
   merged.nutrition = Array.isArray(saved.nutrition) ? saved.nutrition : [];
   merged.checkIns = Array.isArray(saved.checkIns) ? saved.checkIns : [];
   merged.ui = { ...merged.ui, ...(saved.ui || {}) };
   if (!merged.checkIns.length && saved.profile?.weight) {
-    const date = merged.workouts?.[merged.workouts.length - 1]?.date || new Date().toISOString().slice(0,10);
+    const date = merged.workouts?.[merged.workouts.length - 1]?.date || localDateISO();
     merged.checkIns.push({ id:`migrated-${date}`, date, weight:Number(saved.profile.weight), weightUnit:saved.profile.weightUnit || 'lb', sleepHours:null, waterOz:0, migrated:true });
   }
   recoverDay2Workout(merged);
@@ -124,9 +122,11 @@ export function mergeSave(saved, seed) {
 }
 
 function readStoredSave() {
-  // The shadow snapshot is written on every save, so it is always the newest
-  // copy. The legacy key is kept in step and used as a fallback.
-  return readLocal(SHADOW_KEY)?.data || readLocal(LEGACY_KEY);
+  const migrated = localStorage.getItem(FORMAT_KEY) === FORMAT;
+  const main = readLocal(SAVE_KEY);
+  const shadow = readLocal(SHADOW_KEY)?.data;
+  // Before the switch to local-only saves, the shadow copy was the newest.
+  return migrated ? main || shadow : shadow || main;
 }
 
 export async function readSave() {
@@ -139,39 +139,30 @@ export async function loadSave(seed) {
     try { return mergeSave(stored, seed); }
     catch (error) { console.error('Saved campaign could not be read:', error); }
   }
-  const fresh = clone(seed);
-  saveLocalSnapshot(fresh, 'new-campaign');
-  return fresh;
+  return clone(seed);
 }
 
-export async function writeSave(data) {
+// Saves synchronously and announces it with a `fitquest:saved` event.
+// `source` lets a module ignore its own saves.
+export async function writeSave(data, { source = 'module' } = {}) {
   try {
-    saveLocalSnapshot(data, 'autosave');
-    localStorage.setItem(LEGACY_KEY, JSON.stringify(data));
-    notifySync('synced');
-    return true;
+    const json = JSON.stringify(data);
+    localStorage.setItem(SAVE_KEY, json);
+    localStorage.setItem(FORMAT_KEY, FORMAT);
+    saveBackup(json, 'autosave');
   } catch (error) {
     console.error('Save failed:', error);
-    notifySync('error', { error: error.message || String(error) });
     return false;
   }
+  window.dispatchEvent(new CustomEvent('fitquest:saved', { detail: { source } }));
+  return true;
 }
 
 // Keep other open tabs in step when one of them saves.
 window.addEventListener('storage', event => {
-  if (event.key === SHADOW_KEY) window.dispatchEvent(new CustomEvent('fitquest:remote-update'));
+  if (event.key === SAVE_KEY) window.dispatchEvent(new CustomEvent('fitquest:remote-update'));
 });
 
-export function getLocalRecoveryInfo() {
-  const shadow = readLocal(SHADOW_KEY);
-  const backups = readLocal(BACKUP_KEY) || [];
-  return { savedAt: shadow?.savedAt || null, backupCount: backups.length };
-}
-
-export function resetSave() {
-  localStorage.removeItem(LEGACY_KEY);
-  localStorage.removeItem(SHADOW_KEY);
-}
 export function slugify(text='') { return text.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || `exercise-${Date.now()}`; }
 export function dedupeLibrary(items=[]) {
   const seen = new Map();

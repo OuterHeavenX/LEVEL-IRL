@@ -1,9 +1,6 @@
 import { readSave, writeSave } from './lib/storage.js';
+import { $, localDateISO } from './lib/dom.js';
 
-const $ = selector => document.querySelector(selector);
-
-const localDateISO = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
 const DAILY_STEP_BADGES = [
   { id: 'steps-5k', target: 5000, icon: '🥾', name: 'Trail Walker' },
@@ -485,8 +482,7 @@ async function render() {
   if (!install()) return;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
     if (!data) return;
 
     const today = localDateISO();
@@ -549,8 +545,7 @@ async function save() {
   }
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
 
     if (!data) {
       throw new Error('No LEVEL IRL save is available.');
@@ -577,6 +572,7 @@ async function save() {
 
     const ok = await writeSave(data);
     if (!ok) throw new Error('Unable to save activity.');
+    window.dispatchEvent(new CustomEvent('fitquest:daily-activity-saved'));
 
     if (message) {
       message.className = 'fitquest-activity-message success';

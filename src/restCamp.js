@@ -1,4 +1,20 @@
-const $ = selector => document.querySelector(selector);
+import { $, escapeHtml } from './lib/dom.js';
+
+// Fetch JSON from the worker, surfacing its error message when a request fails.
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  let data = null;
+  try { data = await response.json(); } catch {}
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || `Request failed (${response.status}).`);
+  }
+  return data;
+}
+
+// Day of the year in the player's own time zone, so the verse changes at their midnight.
+function localDayOfYear(d = new Date()) {
+  return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(d.getFullYear(), 0, 0)) / 86400000);
+}
 
 const TRIVIA = [
   { category:'Metal Gear Solid', q:'What is the codename of the operative sent to Shadow Moses Island?', a:['Solid Snake','Raiden','Gray Fox','Liquid Ocelot'], correct:0, note:'Solid Snake is pulled out of retirement for the Shadow Moses mission.' },
@@ -138,9 +154,7 @@ async function loadVerse() {
   content.hidden = true;
 
   try {
-    const response = await fetch('/api/youversion/votd', { credentials:'include' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await fetchJson(`/api/youversion/votd?day=${localDayOfYear()}`);
 
     $('#fqVerseRef').textContent = data.reference || data.passage_id || 'Verse of the Day';
     $('#fqVerseText').textContent = data.content || '';
@@ -153,8 +167,10 @@ async function loadVerse() {
     stateEl.hidden = false;
     stateEl.innerHTML = `
       <strong>📖 Verse of the Day is temporarily unavailable.</strong><br>
-      ${String(error?.message || 'LEVEL IRL could not reach YouVersion.')}
+      ${escapeHtml(error?.message || 'LEVEL IRL could not reach YouVersion.')}<br>
+      <button type="button" class="ghost mini" id="fqBibleRetry" style="margin-top:10px">Try Again</button>
     `;
+    $('#fqBibleRetry')?.addEventListener('click', () => void loadVerse());
   }
 }
 
@@ -171,12 +187,7 @@ async function readChapter(chapterId, bibleId = '') {
     const params = new URLSearchParams({ id: chapterId });
     if (bibleId) params.set('bible_id', bibleId);
 
-    const response = await fetch(
-      `/api/youversion/chapter?${params.toString()}`,
-      { credentials:'include' }
-    );
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await fetchJson(`/api/youversion/chapter?${params.toString()}`);
     reader.hidden = false;
     reader.textContent = data.content || 'Chapter unavailable.';
 

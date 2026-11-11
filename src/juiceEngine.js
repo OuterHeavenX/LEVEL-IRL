@@ -1,9 +1,8 @@
 import { readSave, writeSave } from './lib/storage.js';
-import { calculateStats, workoutBattlePower } from './lib/progression.js';
+import { calculateStats, workoutBattlePower, completedStreakAsOf } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
+import { $, localDateISO, reducedMotion } from './lib/dom.js';
 
-const $ = selector => document.querySelector(selector);
-const $$ = selector => [...document.querySelectorAll(selector)];
 
 const STREAK_MILESTONES = new Set([3, 7, 14, 30, 60, 100, 180, 365]);
 
@@ -59,9 +58,6 @@ let internalWrite = false;
 let modalQueue = [];
 let modalOpen = false;
 
-function reducedMotion() {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-}
 
 function styles() {
   if ($('#fitquestJuiceStyles')) return;
@@ -475,14 +471,14 @@ function styles() {
       letter-spacing: .07em;
     }
 
-    #fitquestLevelOverlay.fitquest-juiced-overlay .fitquest-level-card {
+    .fq-level-overlay.fitquest-juiced-overlay .fq-level-card {
       animation: fitquestCardPop .42s cubic-bezier(.2,.8,.2,1) both;
       box-shadow:
         0 40px 130px rgba(0,0,0,.64),
         0 0 70px rgba(135, 93, 255, .16);
     }
 
-    #fitquestLevelOverlay.fitquest-juiced-overlay .fitquest-level-icon {
+    .fq-level-overlay.fitquest-juiced-overlay .fq-level-card b {
       animation: fitquestIconPulse 1.15s ease infinite alternate;
     }
 
@@ -508,8 +504,8 @@ function styles() {
       .fitquest-juice-overlay,
       .fitquest-juice-card,
       #fitquestBossBattle.fitquest-critical-hit,
-      #fitquestLevelOverlay.fitquest-juiced-overlay .fitquest-level-card,
-      #fitquestLevelOverlay.fitquest-juiced-overlay .fitquest-level-icon {
+      .fq-level-overlay.fitquest-juiced-overlay .fq-level-card,
+      .fq-level-overlay.fitquest-juiced-overlay .fq-level-card b {
         animation: none !important;
       }
     }
@@ -651,7 +647,7 @@ function estimatedActivityDamage(checkIn) {
 }
 
 function readyDamageSnapshot(data) {
-  const date = todayISO();
+  const date = localDateISO();
   const workout =
     (data.workouts || []).find(item => item.date === date);
 
@@ -668,24 +664,7 @@ function readyDamageSnapshot(data) {
 
   const pendingExercises = exercises.slice(submitted);
 
-  const dates = [...new Set(
-    (data.workouts || [])
-      .filter(w => w.completed && w.date && w.date <= date)
-      .map(w => w.date)
-  )].sort();
-
-  let streak = dates.length ? 1 : 0;
-
-  for (let i = dates.length - 1; i > 0; i--) {
-    const a = new Date(`${dates[i]}T12:00:00`);
-    const b = new Date(`${dates[i - 1]}T12:00:00`);
-
-    if (Math.round((a - b) / 86400000) === 1) {
-      streak++;
-    } else {
-      break;
-    }
-  }
+  const streak = completedStreakAsOf(data, date);
 
   const workoutDamage =
     workoutBattlePower(pendingExercises, streak);
@@ -819,14 +798,9 @@ function summary(data) {
   };
 }
 
-function todayISO() {
-  const d = new Date();
-
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
 
 function dayConquered(data) {
-  const date = todayISO();
+  const date = localDateISO();
   const workout = (data.workouts || []).find(item => item.date === date && item.completed);
 
   if (!workout) return false;
@@ -915,17 +889,15 @@ function renderLootVault(data) {
 function juiceExistingCompletionOverlay(node) {
   if (!(node instanceof Element)) return;
 
-  const overlay =
-    node.id === 'fitquestLevelOverlay'
-      ? node
-      : node.querySelector?.('#fitquestLevelOverlay');
+  // The level-up ceremony overlay is created by rpgExpansion.js.
+  const overlay = node.classList.contains('fq-level-overlay') ? node : null;
 
   if (!overlay || overlay.classList.contains('fitquest-juiced-overlay')) return;
 
   overlay.classList.add('fitquest-juiced-overlay');
 
   setTimeout(() => {
-    const card = overlay.querySelector('.fitquest-level-card');
+    const card = overlay.querySelector('.fq-level-card');
     if (!card) return;
 
     const rect = card.getBoundingClientRect();
@@ -1053,7 +1025,8 @@ function chooseLoot(workout, existingInventory) {
   const shouldDrop = existingJuice.length === 0 || seed % 100 < 42;
   if (!shouldDrop) return null;
 
-  const roll = seed % 100;
+  // Independent rolls so the drop check doesn't skew rarity or the item picked.
+  const roll = hash(`${workout.id}|rarity|juice-v1`) % 100;
 
   let rarity;
   if (roll < 4) rarity = 'Legendary';
@@ -1070,7 +1043,7 @@ function chooseLoot(workout, existingInventory) {
   );
 
   const choices = unseen.length ? unseen : pool;
-  const selected = choices[seed % choices.length];
+  const selected = choices[hash(`${workout.id}|pick|juice-v1`) % choices.length];
 
   return {
     ...selected,
@@ -1130,8 +1103,7 @@ async function compareNow() {
   compareBusy = true;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
     if (!data) return;
 
     const next = summary(data);
@@ -1330,19 +1302,13 @@ function watchCompletionOverlay() {
     });
   });
 
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-  $('#fitquestLevelOverlay') &&
-    juiceExistingCompletionOverlay($('#fitquestLevelOverlay'));
+  // The overlay is appended directly to <body>, so no subtree watching is needed.
+  observer.observe(document.body, { childList: true });
 }
 
 async function baseline() {
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
 
     if (!data) return;
 
@@ -1375,10 +1341,8 @@ function boot() {
     }
   }, 120);
 
-  window.addEventListener('fitquest:sync', event => {
-    if (event.detail?.status === 'synced') {
-      scheduleCompare(350);
-    }
+  window.addEventListener('fitquest:saved', () => {
+    scheduleCompare(350);
   });
 
   window.addEventListener('fitquest:remote-update', () => {

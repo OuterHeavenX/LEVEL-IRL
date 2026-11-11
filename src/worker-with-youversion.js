@@ -67,7 +67,18 @@ function chapterFromPassageId(passageId) {
   return `${match[1]}.${match[2]}`;
 }
 
+// The Bible list rarely changes, so reuse the choice within a Worker instance.
+const BIBLE_CACHE_MS = 6 * 60 * 60 * 1000;
+let cachedBible = null;
+
 async function chooseBible(env) {
+  if (cachedBible && Date.now() - cachedBible.at < BIBLE_CACHE_MS) return cachedBible.id;
+  const id = await lookupBible(env);
+  cachedBible = { id, at: Date.now() };
+  return id;
+}
+
+async function lookupBible(env) {
   // The App Key only returns Bible versions available to this app.
   try {
     const collection = await yvFetch(
@@ -126,7 +137,11 @@ async function passage(env, bibleId, passageId) {
 }
 
 async function verseOfDay(request, env) {
-  const day = dayOfYear();
+  // Prefer the player's local day (sent by the client) over the Worker's UTC clock.
+  const requested = Number(new URL(request.url).searchParams.get('day'));
+  const day = Number.isInteger(requested) && requested >= 1 && requested <= 366
+    ? requested
+    : dayOfYear();
   const selection = await yvFetch(env, `/verse_of_the_days/${day}`);
 
   if (!selection?.passage_id) {

@@ -1,22 +1,12 @@
 import { readSave } from './lib/storage.js';
+import { $, localDateISO, addDays } from './lib/dom.js';
 
-const $ = selector => document.querySelector(selector);
 
 let selectedRange = 30;
 let busy = false;
 let renderTimer = null;
 let chartAnimationPlayed = false;
 
-const localDateISO = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-
-const dateFromISO = iso => new Date(`${iso}T12:00:00`);
-
-function addDays(iso, amount) {
-  const date = dateFromISO(iso);
-  date.setDate(date.getDate() + amount);
-  return localDateISO(date);
-}
 
 function enumerateDates(start, end) {
   const dates = [];
@@ -606,12 +596,6 @@ function periodScores(data, days, endDate = localDateISO()) {
   }));
 }
 
-function nutritionXpForDate(data, date) {
-  return (data.nutrition || [])
-    .filter(item => item.date === date)
-    .reduce((sum, item) => sum + number(item.xp), 0);
-}
-
 function periodMetrics(data, dates) {
   const dateSet = new Set(dates);
 
@@ -913,8 +897,7 @@ async function refresh() {
   busy = true;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
     if (!data) return;
 
     const today = localDateISO();
@@ -1065,10 +1048,8 @@ function boot() {
     }
   });
 
-  window.addEventListener('fitquest:sync', event => {
-    if (event.detail?.status === 'synced') {
-      scheduleRefresh(250);
-    }
+  window.addEventListener('fitquest:saved', () => {
+    scheduleRefresh(250);
   });
 
   window.addEventListener('fitquest:remote-update', () => {

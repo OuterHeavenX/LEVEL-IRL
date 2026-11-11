@@ -9,8 +9,8 @@ export const landmarkMilestones = [
   { id:'grand-canyon', miles:24, name:'Rim-to-Rim Equivalent', place:'Grand Canyon', sketch:'canyon', flavor:'A virtual rim-to-rim distance. Your legs have entered the briefing.' },
   { id:'marathon', miles:26.2, name:'The 26.2', place:'Marathon Distance', sketch:'road', flavor:'A full marathon worth of accumulated cardio distance.' },
   { id:'rhode-island', miles:48, name:'Rhode Island Traverse', place:'Approx. north-to-south', sketch:'map', flavor:'You have covered roughly the north-to-south span of America’s smallest state.' },
-  { id:'route-66', miles:2448, name:'Route 66', place:'Chicago → Santa Monica', sketch:'road', flavor:'A legendary road, completed one workout at a time.' },
   { id:'appalachian-trail', miles:2190, name:'Appalachian Trail', place:'Eastern United States', sketch:'trail', flavor:'An entire long trail’s worth of accumulated distance.' },
+  { id:'route-66', miles:2448, name:'Route 66', place:'Chicago → Santa Monica', sketch:'road', flavor:'A legendary road, completed one workout at a time.' },
   { id:'transamerica', miles:2800, name:'Continental Crossing', place:'Approx. U.S. coast-to-coast', sketch:'map', flavor:'A continent-sized campaign marker.' },
   { id:'great-wall', miles:13171, name:'Great Wall Campaign', place:'Great Wall of China', sketch:'wall', flavor:'An absurdly epic long-game milestone — exactly as an RPG should have.' }
 ];
@@ -39,7 +39,7 @@ export function buildAchievementArchive(data, stats){
   const nutritionDates = new Set((data.nutrition||[]).map(n=>n.date)).size;
   pushSeries('provisions',100,1,()=>nutritionDates,'Provision Days','🍎');
   landmarkMilestones.forEach(l => archive.push({...l,kind:'landmark',target:l.miles,icon:'📍',unlocked:distance>=l.miles}));
-  archive.push({id:'box-protocol',kind:'secret',target:7,name:'Corrugated Tactics',icon:'📦',unlocked:stats.streak>=7,flavor:'Sometimes legendary equipment is surprisingly rectangular.'});
+  archive.push({id:'box-protocol',kind:'secret',target:7,name:'Corrugated Tactics',icon:'📦',unlocked:stats.bestStreak>=7,flavor:'Sometimes legendary equipment is surprisingly rectangular.'});
   archive.push({id:'no-alert',kind:'secret',target:5,name:'No-Alert Week',icon:'❗',unlocked:stats.workouts>=5,flavor:'Five missions logged. Stay sharp. Stay quiet.'});
   return archive;
 }

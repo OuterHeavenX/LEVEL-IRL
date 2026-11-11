@@ -1,8 +1,8 @@
 import { readSave, writeSave } from './lib/storage.js';
 import { calculateStats } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
+import { $ } from './lib/dom.js';
 
-const $ = selector => document.querySelector(selector);
 
 const CLASSES = [
   {
@@ -56,7 +56,7 @@ const TITLES = [
   { id:'first-step', name:'The Initiate', icon:'🌱', requirement:'Log your first Adventure', test:({stats}) => stats.workouts >= 1 },
   { id:'iron-hand', name:'Forge Hand', icon:'⚒️', requirement:'Reach 25 strength sets', test:({stats}) => stats.strengthSets >= 25 },
   { id:'road-walker', name:'Road Walker', icon:'🥾', requirement:'Record 60 cardio minutes', test:({stats}) => stats.cardio >= 60 },
-  { id:'streak-keeper', name:'Keeper of the Flame', icon:'🔥', requirement:'Reach a 3-day streak', test:({stats}) => stats.streak >= 3 },
+  { id:'streak-keeper', name:'Keeper of the Flame', icon:'🔥', requirement:'Reach a 3-day streak', test:({stats}) => stats.bestStreak >= 3 },
   { id:'bossbreaker', name:'Wardenbreaker', icon:'💥', requirement:'Defeat a campaign boss', test:({bossDefeated}) => bossDefeated },
   { id:'level-three', name:'Veteran of the First Forge', icon:'🏅', requirement:'Reach Level 3', test:({stats}) => stats.level >= 3 },
   { id:'relic-bearer', name:'Relic Bearer', icon:'🔱', requirement:'Own 3 campaign relics', test:({inventory}) => inventory.length >= 3 },
@@ -71,8 +71,8 @@ const PATHS = [
     description:'Your consistency path.',
     nodes:[
       {name:'Spark', requirement:'1 Adventure', unlocked: c => c.stats.workouts >= 1},
-      {name:'Ember', requirement:'3-day streak', unlocked: c => c.stats.streak >= 3},
-      {name:'Inferno', requirement:'7-day streak', unlocked: c => c.stats.streak >= 7}
+      {name:'Ember', requirement:'3-day streak', unlocked: c => c.stats.bestStreak >= 3},
+      {name:'Inferno', requirement:'7-day streak', unlocked: c => c.stats.bestStreak >= 7}
     ]
   },
   {
@@ -934,8 +934,7 @@ async function saveCharacterSetting(key, value) {
   busy = true;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
 
     if (!data) {
       throw new Error('No save is available.');
@@ -1308,10 +1307,10 @@ function render(data) {
 
 async function renderFromSave() {
   try {
-    const cloud = await readSave();
+    const data = (await readSave())?.save;
 
-    if (cloud?.save) {
-      render(cloud.save);
+    if (data) {
+      render(data);
     }
   } catch (error) {
     console.warn(
@@ -1337,21 +1336,12 @@ function boot() {
     }
   }, 120);
 
-  const refreshEvents = [
-    'fitquest:remote-update',
-    'fitquest:boss-hit',
-    'fitquest:character-updated',
-    'fitquest:loot',
-    'fitquest:achievement',
-    'fitquest:record',
-    'fitquest:encounter-resolved',
-    'fitquest:level-up',
-    'fitquest:rpg-updated'
-  ];
-
-  refreshEvents.forEach(eventName => {
+  // Any save (app, loot, boss hits, RPG updates) or another tab can change the sheet.
+  let refreshTimer = null;
+  ['fitquest:saved', 'fitquest:remote-update'].forEach(eventName => {
     window.addEventListener(eventName, () => {
-      void renderFromSave();
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => void renderFromSave(), 200);
     });
   });
 
