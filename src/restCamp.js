@@ -53,9 +53,7 @@ let state = {
 
 function styles() {
   injectStyles('fitquestRestCampStyles', `
-    .fq-camp-card{width:100%;min-width:0;max-width:100%;overflow:hidden;padding:22px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:rgba(15,22,41,.94)}
-    .fq-camp-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
-    .fq-camp-head h3{margin:3px 0 0}.fq-camp-head p{margin:0;color:#8c98b2;font-size:11px;font-weight:900;letter-spacing:.13em}
+    .fq-camp-card{width:100%;min-width:0;max-width:100%;overflow:hidden}
     .fq-camp-score{padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.05);color:#9ba8c0;font-size:10px;font-weight:900;white-space:nowrap}
     .fq-categories{display:flex;width:100%;max-width:100%;gap:7px;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none;padding-bottom:5px;margin-bottom:15px}.fq-categories::-webkit-scrollbar{display:none}
     .fq-category{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#9ca8bf;border-radius:999px;padding:7px 10px;font:inherit;font-size:10px;font-weight:850;white-space:nowrap;cursor:pointer}
@@ -69,9 +67,9 @@ function styles() {
     .fq-verse-shell{display:grid;gap:14px}.fq-verse-ref{color:#a992ff;font-size:12px;font-weight:950;letter-spacing:.08em}.fq-verse-text{font-family:Georgia,serif;font-size:clamp(21px,4vw,29px);line-height:1.55;color:#f3f1ff}
     .fq-bible-state{padding:15px;border-radius:15px;background:rgba(255,255,255,.04);color:#9ba7bd;font-size:12px;line-height:1.55}
     .fq-bible-actions{display:flex;gap:9px;flex-wrap:wrap}.fq-bible-btn{min-height:44px;padding:0 14px;border-radius:13px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);color:#e6eafa;font:inherit;font-weight:850;cursor:pointer}
-    .fq-bible-btn.primary{border:0;background:linear-gradient(135deg,#676bff,#a954ec);color:white}.fq-bible-reader{max-height:55vh;overflow:auto;padding:16px;border-radius:16px;background:rgba(5,10,22,.55);color:#dce2ef;line-height:1.75;white-space:pre-wrap}
-    .fq-attribution{font-size:9px;color:#68758e;line-height:1.4}
-    @media(max-width:720px){.fq-answers{grid-template-columns:minmax(0,1fr)}.fq-camp-card{padding:16px}.fq-camp-head{min-width:0}.fq-camp-head>div{min-width:0}}
+    .fq-bible-btn.is-primary{border:0;background:linear-gradient(135deg,#676bff,#a954ec);color:white}.fq-bible-reader{max-height:55vh;overflow:auto;padding:16px;border-radius:16px;background:rgba(5,10,22,.55);color:#dce2ef;line-height:1.75;white-space:pre-wrap}
+    .fq-attribution{font-size:10px;color:#68758e;line-height:1.4}
+    @media(max-width:720px){.fq-answers{grid-template-columns:minmax(0,1fr)}}
   `);
 }
 
@@ -89,8 +87,12 @@ function chooseQuestion() {
 }
 
 function shuffleAnswers(q) {
-  return q.a.map((text, i) => ({text, correct:i === q.correct}))
-    .sort(() => Math.random() - .5);
+  const answers = q.a.map((text, i) => ({ text, correct: i === q.correct }));
+  for (let i = answers.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [answers[i], answers[j]] = [answers[j], answers[i]];
+  }
+  return answers;
 }
 
 function renderTrivia() {
@@ -148,7 +150,13 @@ async function loadVerse() {
   if (!stateEl || !content) return;
 
   stateEl.textContent = 'Loading today’s YouVersion selection…';
+  stateEl.hidden = false;
   content.hidden = true;
+  const reader = $('#fqBibleReader');
+  if (reader) {
+    reader.hidden = true;
+    reader.textContent = '';
+  }
 
   try {
     const data = await fetchJson(`/api/youversion/votd?day=${localDayOfYear()}`);
@@ -158,6 +166,7 @@ async function loadVerse() {
     $('#fqBibleCopyright').textContent = data.copyright || 'Bible text provided through YouVersion.';
     $('#fqReadChapter').dataset.chapter = data.chapter_id || '';
     $('#fqReadChapter').dataset.bibleId = data.bible_id || '';
+    $('#fqReadChapter').hidden = !data.chapter_id;
     stateEl.hidden = true;
     content.hidden = false;
   } catch (error) {
@@ -203,24 +212,21 @@ async function readChapter(chapterId, bibleId = '') {
 
 function renderCamp() {
   const grid = $('#fitquestScreenGrid-camp');
-  if (!grid || $('#fitquestRestCamp')) return;
+  if (!grid || $('#fqCampTrivia')) return;
 
-  const section = document.createElement('div');
-  section.id = 'fitquestRestCamp';
-  section.style.display = 'contents';
-  section.innerHTML = `
-    <article class="fq-camp-card">
-      <div class="fq-camp-head">
-        <div><p>🎮 BETWEEN-SET TRIVIA</p><h3>Personal Trivia</h3></div>
-        <span class="fq-camp-score" id="fqTriviaScore">0 / 0</span>
+  grid.insertAdjacentHTML('beforeend', `
+    <article class="card fq-camp-card" id="fqCampTrivia">
+      <div class="section-heading fq-camp-head">
+        <div><p class="eyebrow">BETWEEN-SET TRIVIA</p><h3>Personal Trivia</h3></div>
+        <span class="pill fq-camp-score" id="fqTriviaScore">0 / 0</span>
       </div>
       <div id="fqTriviaBody"></div>
     </article>
 
-    <article class="fq-camp-card">
-      <div class="fq-camp-head">
-        <div><p>📖 DAILY WORD</p><h3>Verse of the Day</h3></div>
-        <span class="fq-camp-score">YOUVERSION</span>
+    <article class="card fq-camp-card" id="fqCampVerse">
+      <div class="section-heading fq-camp-head">
+        <div><p class="eyebrow">DAILY WORD</p><h3>Verse of the Day</h3></div>
+        <span class="pill fq-camp-score">YOUVERSION</span>
       </div>
 
       <div class="fq-verse-shell">
@@ -230,7 +236,7 @@ function renderCamp() {
           <div class="fq-verse-ref" id="fqVerseRef"></div>
           <div class="fq-verse-text" id="fqVerseText"></div>
           <div class="fq-bible-actions">
-            <button class="fq-bible-btn primary" id="fqReadChapter" type="button">📖 Read Full Chapter</button>
+            <button class="fq-bible-btn is-primary" id="fqReadChapter" type="button">📖 Read Full Chapter</button>
             <button class="fq-bible-btn" id="fqReloadVerse" type="button">↻ Refresh</button>
           </div>
           <div class="fq-bible-reader" id="fqBibleReader" hidden></div>
@@ -238,9 +244,8 @@ function renderCamp() {
         </div>
       </div>
     </article>
-  `;
+  `);
 
-  grid.appendChild(section);
   renderTrivia();
   loadVerse();
 
@@ -265,8 +270,4 @@ function boot() {
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once:true });
-} else {
-  boot();
-}
+boot();

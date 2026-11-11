@@ -1,5 +1,5 @@
-import { readSave, writeSave } from './lib/storage.js';
-import { $, localDateISO, injectStyles, appVisible, whenReady } from './lib/dom.js';
+import { readSave, writeSave, ensureCheckIn } from './lib/storage.js';
+import { $, localDateISO, activeDateISO, shortDateLabel, weekDatesOf, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 const DAILY_STEP_BADGES = [
@@ -9,40 +9,22 @@ const DAILY_STEP_BADGES = [
   { id: 'steps-20k', target: 20000, icon: '🪽', name: 'Twenty Thousand Legend' }
 ];
 
+const ACTIVITY_INPUTS = ['#fitquestSteps', '#fitquestActiveCalories', '#fitquestExerciseMinutes', '#fitquestStandHours'];
+
 let busy = false;
 
 function styles() {
   injectStyles('fitquestActivityStyles', `
     .fitquest-activity-card {
-      padding: 24px;
-      border-radius: 24px;
-      border: 1px solid rgba(91, 199, 255, .16);
-      background:
-        radial-gradient(circle at 100% 0%, rgba(69, 190, 255, .10), transparent 36%),
-        rgba(15, 22, 41, .95);
       color: #f7f8ff;
     }
 
-    .fitquest-activity-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 18px;
-      margin-bottom: 20px;
-    }
-
-    .fitquest-activity-head h3 {
-      margin: 3px 0 0;
-    }
-
     .fitquest-activity-date {
-      padding: 8px 11px;
-      border-radius: 999px;
       background: rgba(255,255,255,.055);
       border: 1px solid rgba(255,255,255,.08);
       color: #a8b3ca;
-      font-size: 11px;
-      font-weight: 800;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .fitquest-activity-grid {
@@ -53,6 +35,7 @@ function styles() {
 
     .fitquest-activity-grid label {
       display: grid;
+      align-content: end;
       gap: 8px;
       color: #b9c3d7;
       font-size: 13px;
@@ -100,46 +83,9 @@ function styles() {
       color: #ff9da7;
     }
 
-    .fitquest-activity-summary {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 18px;
-    }
-
-    .fitquest-activity-summary > div {
-      padding: 13px;
-      border-radius: 15px;
-      background: rgba(255,255,255,.045);
-      border: 1px solid rgba(255,255,255,.07);
-    }
-
-    .fitquest-activity-summary small,
-    .fitquest-activity-summary strong {
-      display: block;
-    }
-
-    .fitquest-activity-summary small {
-      color: #8491aa;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-    }
-
-    .fitquest-activity-summary strong {
-      margin-top: 5px;
-      font-size: 17px;
-    }
-
-    .fitquest-week-card {
-      padding: 22px;
-      border-radius: 22px;
-      border: 1px solid rgba(255,255,255,.09);
-      background: rgba(15, 22, 41, .92);
-    }
-
-    .fitquest-week-card h3 {
-      margin: 3px 0 16px;
+    .fitquest-activity-message:empty {
+      min-height: 0;
+      margin: 0;
     }
 
     .fitquest-week-totals {
@@ -218,34 +164,11 @@ function styles() {
 
     @media (max-width: 760px) {
       .fitquest-activity-grid,
-      .fitquest-activity-summary,
       .fitquest-week-totals {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
   `);
-}
-
-function ensureCheckIn(data, date) {
-  data.checkIns ||= [];
-
-  let item = data.checkIns.find(checkIn => checkIn.date === date);
-
-  if (!item) {
-    item = {
-      id: `checkin-${date}-${Date.now()}`,
-      date,
-      weight: null,
-      weightUnit: 'lb',
-      sleepHours: null,
-      sleepMinutes: null,
-      waterOz: 0
-    };
-
-    data.checkIns.push(item);
-  }
-
-  return item;
 }
 
 function ensureActivityAchievements(data) {
@@ -277,25 +200,8 @@ function evaluateAchievements(data, checkIn) {
   return newlyUnlocked;
 }
 
-function mondayISO(date = new Date()) {
-  const d = new Date(date);
-  d.setHours(12, 0, 0, 0);
-  const delta = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - delta);
-  return localDateISO(d);
-}
-
 function weekEntries(data) {
-  const start = mondayISO();
-  const monday = new Date(`${start}T12:00:00`);
-  const allowed = new Set();
-
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    allowed.add(localDateISO(d));
-  }
-
+  const allowed = new Set(weekDatesOf(localDateISO()));
   return (data.checkIns || []).filter(item => allowed.has(item.date));
 }
 
@@ -330,15 +236,15 @@ function install() {
 
   const section = document.createElement('section');
   section.id = 'fitquestDailyActivity';
-  section.className = 'fitquest-activity-card';
+  section.className = 'card fitquest-activity-card';
 
   section.innerHTML = `
-    <div class="fitquest-activity-head">
+    <div class="section-heading fitquest-activity-head">
       <div>
         <p class="eyebrow">APPLE WATCH · MANUAL FIELD LOG</p>
         <h3>Daily Activity</h3>
       </div>
-      <span class="fitquest-activity-date" id="fitquestActivityDate">Today</span>
+      <span class="pill fitquest-activity-date" id="fitquestActivityDate">Today</span>
     </div>
 
     <div class="fitquest-activity-grid">
@@ -405,11 +311,6 @@ function install() {
       id="fitquestActivityMessage"
     ></p>
 
-    <div
-      class="fitquest-activity-summary"
-      id="fitquestTodayActivitySummary"
-    ></div>
-
     <div class="fitquest-watch-note">
       ⌚ Enter the totals shown by Apple Watch / Fitness at the end of the day.
       LEVEL IRL stores them in the same dated check-in used by your recovery data.
@@ -418,10 +319,14 @@ function install() {
 
   const week = document.createElement('section');
   week.id = 'fitquestWeeklyActivity';
-  week.className = 'fitquest-week-card';
+  week.className = 'card fitquest-week-card';
   week.innerHTML = `
-    <p class="eyebrow">WEEKLY MOVEMENT · FIELD TOTALS</p>
-    <h3>Activity Campaign</h3>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">WEEKLY MOVEMENT · FIELD TOTALS</p>
+        <h3>Activity Campaign</h3>
+      </div>
+    </div>
     <div class="fitquest-week-totals" id="fitquestWeekTotals"></div>
     <div class="fitquest-activity-achievements" id="fitquestActivityAchievements"></div>
   `;
@@ -434,17 +339,22 @@ function install() {
   host.appendChild(week);
 
   $('#fitquestSaveActivity').addEventListener('click', save);
-  window.dispatchEvent(new CustomEvent('fitquest:activity-ready'));
+  ACTIVITY_INPUTS.forEach(sel => $(sel)?.addEventListener('input', event => {
+    event.target.dataset.dirty = 'true';
+  }));
   return true;
 }
 
-function summaryHTML(checkIn) {
-  return `
-    <div><small>Steps</small><strong>${(Number(checkIn?.steps) || 0).toLocaleString()}</strong></div>
-    <div><small>Active Cal</small><strong>${Math.round(Number(checkIn?.activeCalories) || 0)}</strong></div>
-    <div><small>Exercise</small><strong>${Math.round(Number(checkIn?.exerciseMinutes) || 0)} min</strong></div>
-    <div><small>Stand</small><strong>${Math.round(Number(checkIn?.standHours) || 0)} hr</strong></div>
-  `;
+// Typed-but-unsaved values survive re-renders from navigation or other modules' saves.
+function setInputValue(input, value) {
+  if (input && input.dataset.dirty !== 'true') input.value = value;
+}
+
+function clearDirty() {
+  ACTIVITY_INPUTS.forEach(sel => {
+    const input = $(sel);
+    if (input) delete input.dataset.dirty;
+  });
 }
 
 function renderAchievements(data) {
@@ -476,34 +386,31 @@ async function render() {
   if (!install()) return;
 
   try {
-    const data = (await readSave())?.save;
+    const data = readSave();
     if (!data) return;
 
-    const today = localDateISO();
-    const checkIn = (data.checkIns || []).find(item => item.date === today) || null;
+    const day = activeDateISO();
+    const card = $('#fitquestDailyActivity');
 
-    const pretty = new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      month: 'short',
-      day: 'numeric'
-    }).format(new Date(`${today}T12:00:00`));
+    if (card.dataset.date !== day) {
+      clearDirty();
+      const message = $('#fitquestActivityMessage');
+      if (message) {
+        message.className = 'fitquest-activity-message';
+        message.textContent = '';
+      }
+    }
 
-    $('#fitquestActivityDate').textContent = pretty;
+    card.dataset.date = day;
 
-    $('#fitquestSteps').value =
-      checkIn?.steps ?? '';
+    const checkIn = (data.checkIns || []).find(item => item.date === day) || null;
 
-    $('#fitquestActiveCalories').value =
-      checkIn?.activeCalories ?? '';
+    $('#fitquestActivityDate').textContent = shortDateLabel(day);
 
-    $('#fitquestExerciseMinutes').value =
-      checkIn?.exerciseMinutes ?? '';
-
-    $('#fitquestStandHours').value =
-      checkIn?.standHours ?? '';
-
-    $('#fitquestTodayActivitySummary').innerHTML =
-      summaryHTML(checkIn);
+    setInputValue($('#fitquestSteps'), checkIn?.steps ?? '');
+    setInputValue($('#fitquestActiveCalories'), checkIn?.activeCalories ?? '');
+    setInputValue($('#fitquestExerciseMinutes'), checkIn?.exerciseMinutes ?? '');
+    setInputValue($('#fitquestStandHours'), checkIn?.standHours ?? '');
 
     const week = totals(weekEntries(data));
 
@@ -525,28 +432,17 @@ async function save() {
   if (busy) return;
   busy = true;
 
-  const button = $('#fitquestSaveActivity');
   const message = $('#fitquestActivityMessage');
 
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Saving Activity…';
-  }
-
-  if (message) {
-    message.className = 'fitquest-activity-message';
-    message.textContent = 'Saving your LEVEL IRL campaign…';
-  }
-
   try {
-    const data = (await readSave())?.save;
+    const data = readSave();
 
     if (!data) {
       throw new Error('No LEVEL IRL save is available.');
     }
 
-    const today = localDateISO();
-    const checkIn = ensureCheckIn(data, today);
+    const day = $('#fitquestDailyActivity')?.dataset.date || activeDateISO();
+    const checkIn = ensureCheckIn(data, day);
 
     checkIn.steps =
       Math.max(0, Math.round(Number($('#fitquestSteps').value) || 0));
@@ -564,8 +460,9 @@ async function save() {
 
     const unlocked = evaluateAchievements(data, checkIn);
 
-    const ok = await writeSave(data);
+    const ok = writeSave(data);
     if (!ok) throw new Error('Unable to save activity.');
+    clearDirty();
     window.dispatchEvent(new CustomEvent('fitquest:daily-activity-saved'));
 
     if (message) {
@@ -584,11 +481,6 @@ async function save() {
     }
   } finally {
     busy = false;
-
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Save Daily Activity';
-    }
   }
 }
 
@@ -609,10 +501,16 @@ function boot() {
   window.addEventListener('fitquest:remote-update', () => {
     void render();
   });
+
+  window.addEventListener('fitquest:active-date', () => void render());
+
+  // A card left open overnight would otherwise keep editing yesterday.
+  document.addEventListener('visibilitychange', () => {
+    const card = $('#fitquestDailyActivity');
+    if (document.visibilityState === 'visible' && card && card.dataset.date !== activeDateISO()) {
+      void render();
+    }
+  });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
-}
+boot();

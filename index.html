@@ -33,10 +33,6 @@
 
 <body>
 
-  <!-- =========================================================
-       MAIN LEVEL IRL APPLICATION
-       ========================================================= -->
-
   <div id="appRoot" hidden>
 
     <div class="ambient orb-one"></div>
@@ -104,16 +100,12 @@
               CHAPTER I · THE BEGINNING
             </p>
 
-            <h2 id="heroTitle">
-              Day 1: The Journey Begins
-            </h2>
+            <h2 id="heroTitle"></h2>
 
             <p
               class="muted"
               id="heroDate"
-            >
-              Friday, July 31, 2026 · Evening
-            </p>
+            ></p>
 
           </div>
 
@@ -123,7 +115,7 @@
               <span>Experience</span>
 
               <strong id="xpText">
-                180 / 500 XP
+                0 / 500 XP
               </strong>
             </div>
 
@@ -150,7 +142,7 @@
 
             <div>
               <small>Streak</small>
-              <strong id="streakStat">1 day</strong>
+              <strong id="streakStat">0 days</strong>
             </div>
           </article>
 
@@ -159,7 +151,7 @@
 
             <div>
               <small>Strength Sets</small>
-              <strong id="setsStat">15</strong>
+              <strong id="setsStat">0</strong>
             </div>
           </article>
 
@@ -168,7 +160,7 @@
 
             <div>
               <small>Cardio</small>
-              <strong id="cardioStat">20 min</strong>
+              <strong id="cardioStat">0 min</strong>
             </div>
           </article>
 
@@ -177,7 +169,7 @@
 
             <div>
               <small>Total XP</small>
-              <strong id="totalXpStat">180</strong>
+              <strong id="totalXpStat">0</strong>
             </div>
           </article>
 
@@ -224,8 +216,10 @@
 
               <div>
                 <p class="eyebrow">
-                  CHARACTER DOSSIER · PERMANENT STATS
+                  CHARACTER DOSSIER
                 </p>
+
+                <h3>Permanent Stats</h3>
               </div>
 
               <button
@@ -237,21 +231,6 @@
               </button>
 
             </div>
-
-            <div class="avatar">
-              <span>⚔️</span>
-            </div>
-
-            <h3 id="rankTitle">
-              Novice Adventurer
-            </h3>
-
-            <p
-              class="muted"
-              id="characterGoal"
-            >
-              Goal: Slim & Tone
-            </p>
 
             <div class="identity-readout">
 
@@ -509,11 +488,6 @@
 
           </div>
 
-          <p class="muted codex-help">
-            Every new exercise you type is remembered here automatically.
-            Tomorrow's mystery machine becomes next week's one-tap favorite.
-          </p>
-
           <div
             id="exerciseLibrary"
             class="codex-grid"
@@ -533,7 +507,7 @@
               <div>
 
                 <p class="eyebrow">
-                  PROVISIONS
+                  MEALS · MACROS
                 </p>
 
                 <h3>
@@ -617,7 +591,7 @@
               </div>
 
               <span
-                class="quest-count"
+                class="pill quest-count"
                 id="questCount"
               >
                 0/3
@@ -702,8 +676,7 @@
             </div>
 
             <p class="muted archive-note">
-              A huge achievement engine runs quietly behind the campaign.
-              Only useful unlocks and nearby goals surface here.
+              A few of your earned medals and the next ones within reach.
             </p>
 
             <div id="achievementPreview"></div>
@@ -841,35 +814,6 @@
 
         </section>
 
-
-        <!-- CHRONICLE -->
-
-        <section class="card chronicle">
-
-          <div class="section-heading">
-
-            <div>
-
-              <p class="eyebrow">
-                TRAINING CHRONICLE
-              </p>
-
-              <h3>
-                Your Story So Far
-              </h3>
-
-            </div>
-
-            <span class="pill">
-              Campaign I
-            </span>
-
-          </div>
-
-          <div id="chronicle"></div>
-
-        </section>
-
       </main>
 
     </div>
@@ -901,18 +845,12 @@
           <button
             type="button"
             class="icon-btn dialog-close"
-            data-close-parent
             aria-label="Close dialog"
           >
             ×
           </button>
 
         </div>
-
-        <input
-          type="hidden"
-          id="exerciseEditIndex"
-        >
 
         <label>
 
@@ -1063,15 +1001,11 @@
 
         <button
           class="primary"
+          id="exerciseSubmitBtn"
           value="default"
         >
           Log the Move
         </button>
-
-        <p class="dialog-tip">
-          ✨ New exercise names are automatically added
-          to your Exercise Codex.
-        </p>
 
       </form>
 
@@ -1101,7 +1035,6 @@
           <button
             type="button"
             class="icon-btn dialog-close"
-            data-close-dialog="foodDialog"
             aria-label="Close food dialog"
           >
             ×
@@ -1279,7 +1212,6 @@
           <button
             type="button"
             class="icon-btn dialog-close"
-            data-close-parent
             aria-label="Close dialog"
           >
             ×
@@ -1347,32 +1279,9 @@
 
     </dialog>
 
-    <div
-      class="toast"
-      id="toast"
-    ></div>
-
   </div>
 
-
-  <!-- =========================================================
-       LEVEL IRL APPLICATION SCRIPTS
-       ========================================================= -->
-
-  <script
-    type="module"
-    src="/src/history.js"
-  ></script>
-
-  <script
-    type="module"
-    src="/src/app.js"
-  ></script>
-
-  <script
-    type="module"
-    src="/src/workoutCompletion.js"
-  ></script>
+  <script type="module" src="/src/main.js"></script>
 
 </body>
 </html>

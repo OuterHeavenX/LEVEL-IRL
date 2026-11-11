@@ -1,11 +1,11 @@
 const mi = n => Number(n) || 0;
 
-export const landmarkMilestones = [
+const landmarkMilestones = [
   { id:'brooklyn-bridge', miles:1.1, name:'Brooklyn Bridge Crossing', place:'New York City', sketch:'suspension', flavor:'A first crossing. The city is behind you; the campaign is ahead.' },
   { id:'golden-gate', miles:1.7, name:'Golden Gate Crossing', place:'San Francisco', sketch:'suspension', flavor:'Fog, steel, and forward motion.' },
   { id:'vegas-strip', miles:4.2, name:'Neon Recon', place:'Las Vegas Strip', sketch:'city', flavor:'Four miles of lights. Zero need for a save point.' },
   { id:'central-park', miles:6.1, name:'Central Park Loop', place:'New York City', sketch:'park', flavor:'One complete loop around the green heart of Manhattan.' },
-  { id:'manhattan', miles:13.4, name:'Manhattan Traverse', place:'New York City', sketch:'city', flavor:'From one end of the island to the other — in accumulated steps.' },
+  { id:'manhattan', miles:13.4, name:'Manhattan Traverse', place:'New York City', sketch:'city', flavor:'From one end of the island to the other — in accumulated cardio distance.' },
   { id:'grand-canyon', miles:24, name:'Rim-to-Rim Equivalent', place:'Grand Canyon', sketch:'canyon', flavor:'A virtual rim-to-rim distance. Your legs have entered the briefing.' },
   { id:'marathon', miles:26.2, name:'The 26.2', place:'Marathon Distance', sketch:'road', flavor:'A full marathon worth of accumulated cardio distance.' },
   { id:'rhode-island', miles:48, name:'Rhode Island Traverse', place:'Approx. north-to-south', sketch:'map', flavor:'You have covered roughly the north-to-south span of America’s smallest state.' },
@@ -15,14 +15,14 @@ export const landmarkMilestones = [
   { id:'great-wall', miles:13171, name:'Great Wall Campaign', place:'Great Wall of China', sketch:'wall', flavor:'An absurdly epic long-game milestone — exactly as an RPG should have.' }
 ];
 
-export function totalDistanceMiles(data){
+function totalDistanceMiles(data){
   return (data.workouts || []).flatMap(w => w.exercises || []).filter(e => e.type === 'cardio').reduce((sum,e) => {
     const d = mi(e.distance);
     return sum + (e.distanceUnit === 'km' ? d * 0.621371 : d);
   }, 0);
 }
 
-export function buildAchievementArchive(data, stats){
+function buildAchievementArchive(data, stats){
   const distance = totalDistanceMiles(data);
   const archive = [];
   const pushSeries = (kind, max, step, getValue, label, icon) => {

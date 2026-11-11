@@ -1,5 +1,6 @@
-import { readSave } from './lib/storage.js';
-import { $, localDateISO, addDays, injectStyles, appVisible, whenReady } from './lib/dom.js';
+import { readSave, sleepMinutesOf } from './lib/storage.js';
+import { exerciseTotals } from './lib/progression.js';
+import { $, escapeHtml, localDateISO, addDays, injectStyles, appVisible, whenReady, reducedMotion } from './lib/dom.js';
 
 
 let selectedRange = 30;
@@ -33,6 +34,16 @@ function round(value, digits = 0) {
   return Math.round((Number(value) || 0) * factor) / factor;
 }
 
+const KG_PER_LB = 2.20462;
+
+// Each check-in keeps its own unit, so compare weights in one unit.
+function weightIn(entry, unit) {
+  const w = number(entry?.weight);
+  const from = entry?.weightUnit || 'lb';
+  if (from === unit) return w;
+  return unit === 'kg' ? w / KG_PER_LB : w * KG_PER_LB;
+}
+
 function formatNumber(value) {
   return Math.round(number(value)).toLocaleString();
 }
@@ -41,31 +52,11 @@ function styles() {
   injectStyles('fitquestProgressOverviewStyles', `
     .fitquest-overview {
       grid-column: 1 / -1;
-      padding: 24px;
-      border-radius: 25px;
-      border: 1px solid rgba(128, 105, 255, .20);
-      background:
-        radial-gradient(circle at 82% 0%, rgba(170, 84, 244, .13), transparent 34%),
-        radial-gradient(circle at 10% 15%, rgba(69, 190, 255, .08), transparent 28%),
-        linear-gradient(145deg, rgba(18, 27, 52, .97), rgba(10, 16, 32, .98));
-      box-shadow: 0 24px 70px rgba(0,0,0,.25);
       color: #f7f8ff;
     }
 
-    .fitquest-overview-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 18px;
-    }
-
-    .fitquest-overview-head h3 {
-      margin: 4px 0 5px;
-      font-size: clamp(24px, 4vw, 34px);
-    }
-
-    .fitquest-overview-head p {
-      margin: 0;
+    .fitquest-overview-desc {
+      margin: 5px 0 0;
       max-width: 660px;
       color: #8f9bb5;
       line-height: 1.5;
@@ -237,7 +228,7 @@ function styles() {
 
     .fitquest-metric small {
       color: #7f8da7;
-      font-size: 9px;
+      font-size: 10px;
       font-style: normal;
       font-weight: 900;
       letter-spacing: .07em;
@@ -363,15 +354,8 @@ function styles() {
     }
 
     @media (max-width: 720px) {
-      .fitquest-overview {
-        padding: 18px;
-        border-radius: 21px;
-      }
-
       .fitquest-overview-head {
-        align-items: stretch;
         flex-direction: column;
-        gap: 12px;
       }
 
       .fitquest-range-tabs {
@@ -407,7 +391,6 @@ function styles() {
       }
 
       .fitquest-heatmap {
-        grid-template-columns: repeat(10, minmax(0, 1fr));
         gap: 4px;
       }
 
@@ -427,7 +410,7 @@ function install() {
   if (!overview) {
     overview = document.createElement('section');
     overview.id = 'fitquestCampaignOverview';
-    overview.className = 'fitquest-overview';
+    overview.className = 'card fitquest-overview';
     grid.insertBefore(overview, grid.firstChild);
   } else if (overview.parentElement !== grid || grid.firstElementChild !== overview) {
     grid.insertBefore(overview, grid.firstChild);
@@ -474,20 +457,6 @@ function dailyContext(data, date) {
   };
 }
 
-function sleepMinutes(checkIn) {
-  if (!checkIn) return 0;
-
-  if (checkIn.sleepMinutes != null) {
-    return number(checkIn.sleepMinutes);
-  }
-
-  if (checkIn.sleepHours != null) {
-    return Math.round(number(checkIn.sleepHours) * 60);
-  }
-
-  return 0;
-}
-
 function scoreDay(data, date) {
   const ctx = dailyContext(data, date);
   const { workout, checkIn, nutrition, exercises } = ctx;
@@ -510,7 +479,7 @@ function scoreDay(data, date) {
     clamp((standHours / 12) * 2, 0, 2);
 
   // RECOVERY · 20
-  const sleep = sleepMinutes(checkIn);
+  const sleep = sleepMinutesOf(checkIn) ?? 0;
   const water = number(checkIn?.waterOz);
   const weightLogged = checkIn?.weight != null && number(checkIn.weight) > 0;
 
@@ -607,23 +576,16 @@ function periodMetrics(data, dates) {
   const activeCalories = checkIns.reduce((sum, item) => sum + number(item.activeCalories), 0);
   const watchExercise = checkIns.reduce((sum, item) => sum + number(item.exerciseMinutes), 0);
 
-  const strengthSets = exercises
-    .filter(item => item.type === 'strength')
-    .reduce((sum, item) => sum + number(item.sets), 0);
-
-  const cardioMinutes = exercises
-    .filter(item => item.type === 'cardio')
-    .reduce((sum, item) => sum + number(item.duration), 0);
+  const { strengthSets, cardio: cardioMinutes, xp: exerciseXp } = exerciseTotals(exercises);
 
   const sleepValues = checkIns
-    .map(item => sleepMinutes(item))
+    .map(item => sleepMinutesOf(item) ?? 0)
     .filter(value => value > 0);
 
   const waterValues = checkIns
     .map(item => number(item.waterOz))
     .filter(value => value > 0);
 
-  const exerciseXp = exercises.reduce((sum, item) => sum + number(item.xp), 0);
   const completionXp = workouts.reduce((sum, item) => sum + number(item.completionXp), 0);
   const nutritionXp = nutrition.reduce((sum, item) => sum + number(item.xp), 0);
 
@@ -659,13 +621,13 @@ function periodMetrics(data, dates) {
 
 function metricCards(metrics) {
   const sleepHours = metrics.avgSleepMinutes / 60;
+  const weightUnit = metrics.weights.at(-1)?.weightUnit || 'lb';
   const weightChange =
     metrics.weights.length >= 2
-      ? number(metrics.weights[metrics.weights.length - 1].weight) -
-        number(metrics.weights[0].weight)
+      ? weightIn(metrics.weights.at(-1), weightUnit) - weightIn(metrics.weights[0], weightUnit)
       : null;
-
-  const weightUnit = metrics.weights.at(-1)?.weightUnit || 'lb';
+  const nDays = metrics.nutritionDays;
+  const nWeights = metrics.weights.length;
 
   const items = [
     ['⚔️ Adventures', formatNumber(metrics.completed), 'completed'],
@@ -676,15 +638,15 @@ function metricCards(metrics) {
     ['💧 Avg Water', metrics.avgWater ? `${formatNumber(metrics.avgWater)} oz` : '—', 'logged days'],
     ['⚔️ Strength Sets', formatNumber(metrics.strengthSets), 'training'],
     ['🏃 Cardio', `${formatNumber(metrics.cardioMinutes)} min`, 'training'],
-    ['🍎 Nutrition', `${formatNumber(metrics.nutritionDays)} days`, 'logged'],
-    ['✨ XP Earned', formatNumber(metrics.xp), 'campaign'],
+    ['🍎 Nutrition', `${formatNumber(nDays)} day${nDays === 1 ? '' : 's'}`, 'logged'],
+    ['✨ XP Earned', formatNumber(metrics.xp), 'training + nutrition'],
     ['🛡️ Boss Damage', formatNumber(metrics.bossDamage), 'all strikes'],
     [
       '⚖️ Weight Trend',
       weightChange == null
         ? '—'
-        : `${weightChange > 0 ? '+' : ''}${round(weightChange, 1)} ${weightUnit}`,
-      metrics.weights.length ? `${metrics.weights.length} entries` : 'not enough data'
+        : `${weightChange > 0 ? '+' : ''}${round(weightChange, 1)} ${escapeHtml(weightUnit)}`,
+      nWeights ? `${nWeights} entr${nWeights === 1 ? 'y' : 'ies'}` : 'not enough data'
     ]
   ];
 
@@ -730,7 +692,7 @@ function chartSVG(scores) {
 
   return `
     <svg
-      class="fitquest-score-chart ${chartAnimationPlayed ? '' : 'animate'}"
+      class="fitquest-score-chart ${chartAnimationPlayed || reducedMotion() ? '' : 'animate'}"
       viewBox="0 0 ${width} ${height}"
       preserveAspectRatio="none"
       role="img"
@@ -748,13 +710,13 @@ function chartSVG(scores) {
       <line class="gridline" x1="0" x2="${width}" y1="${padY + usableH * .75}" y2="${padY + usableH * .75}"></line>
 
       <polygon class="area" points="${area}"></polygon>
-      <polyline class="line" points="${line}"></polyline>
+      <polyline class="line" points="${line}" pathLength="1000"></polyline>
 
       ${
         showDots
           ? points.map(point => `
               <circle class="point" cx="${point.x}" cy="${point.y}" r="4">
-                <title>${point.date}: ${point.total}/100</title>
+                <title>${escapeHtml(point.date)}: ${point.total}/100</title>
               </circle>
             `).join('')
           : ''
@@ -778,8 +740,8 @@ function heatmapHTML(data) {
       <div
         class="fitquest-heat-day"
         style="background:rgba(129, 105, 255, ${alpha.toFixed(2)})"
-        title="${date} · ${score.total}/100"
-        aria-label="${date}: ${score.total} out of 100"
+        title="${escapeHtml(date)} · ${score.total}/100"
+        aria-label="${escapeHtml(date)}: ${score.total} out of 100"
       ></div>
     `;
   }).join('');
@@ -812,23 +774,25 @@ function breakdownHTML(scores) {
 
 function weightSummary(metrics) {
   if (!metrics.weights.length) {
-    return 'No weight entries in this range. Weight is shown separately and does not raise or lower your progress score.';
+    return 'No weight entries in this range.';
   }
 
   const first = metrics.weights[0];
   const last = metrics.weights.at(-1);
-  const unit = last.weightUnit || first.weightUnit || 'lb';
+  const unit = last.weightUnit || 'lb';
+  const unitLabel = escapeHtml(unit);
 
   if (metrics.weights.length === 1) {
-    return `Latest logged weight: <strong>${round(last.weight, 1)} ${unit}</strong>. Weight is tracked separately from the score.`;
+    return `Latest logged weight: <strong>${round(last.weight, 1)} ${unitLabel}</strong>.`;
   }
 
-  const change = number(last.weight) - number(first.weight);
+  const firstW = weightIn(first, unit);
+  const lastW = weightIn(last, unit);
+  const change = lastW - firstW;
 
   return `
-    ${round(first.weight, 1)} ${unit} → <strong>${round(last.weight, 1)} ${unit}</strong>
-    (${change > 0 ? '+' : ''}${round(change, 1)} ${unit}).
-    Weight direction is informational only — it never automatically counts as “good” or “bad.”
+    ${round(firstW, 1)} ${unitLabel} → <strong>${round(lastW, 1)} ${unitLabel}</strong>
+    (${change > 0 ? '+' : ''}${round(change, 1)} ${unitLabel}).
   `;
 }
 
@@ -891,7 +855,7 @@ async function refresh() {
   busy = true;
 
   try {
-    const data = (await readSave())?.save;
+    const data = readSave();
     if (!data) return;
 
     const today = localDateISO();
@@ -913,11 +877,11 @@ async function refresh() {
     const overview = $('#fitquestCampaignOverview');
 
     overview.innerHTML = `
-      <div class="fitquest-overview-head">
+      <div class="section-heading fitquest-overview-head">
         <div>
           <p class="eyebrow">CAMPAIGN OVERVIEW · ALL SYSTEMS</p>
           <h3>Overall Progress</h3>
-          <p>
+          <p class="fitquest-overview-desc">
             One glance across training, Apple Watch activity, recovery, nutrition,
             consistency, XP, boss battles, and your logged measurements.
           </p>
@@ -942,7 +906,7 @@ async function refresh() {
         <div class="fitquest-trend-panel">
           <div class="fitquest-trend-top">
             <strong>Daily progress trend</strong>
-            <small>${scores[0]?.date || today} → ${scores.at(-1)?.date || today}</small>
+            <small>${escapeHtml(scores[0]?.date || today)} → ${escapeHtml(scores.at(-1)?.date || today)}</small>
           </div>
           ${chartSVG(scores)}
         </div>
@@ -998,11 +962,15 @@ async function refresh() {
     const overview = $('#fitquestCampaignOverview');
     if (overview) {
       overview.innerHTML = `
-        <p class="eyebrow">CAMPAIGN OVERVIEW</p>
-        <h3 style="margin:6px 0">Overall Progress</h3>
-        <p style="color:#8f9bb5">
-          Progress data is temporarily unavailable. Your underlying LEVEL IRL save was not changed.
-        </p>
+        <div class="section-heading fitquest-overview-head">
+          <div>
+            <p class="eyebrow">CAMPAIGN OVERVIEW · ALL SYSTEMS</p>
+            <h3>Overall Progress</h3>
+            <p class="fitquest-overview-desc">
+              Progress data is temporarily unavailable. Your underlying LEVEL IRL save was not changed.
+            </p>
+          </div>
+        </div>
       `;
     }
   } finally {
@@ -1036,14 +1004,6 @@ function boot() {
   window.addEventListener('fitquest:remote-update', () => {
     scheduleRefresh(120);
   });
-
-  window.addEventListener('fitquest:activity-ready', () => {
-    scheduleRefresh(120);
-  });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
-}
+boot();

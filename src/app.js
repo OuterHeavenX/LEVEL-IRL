@@ -7,60 +7,83 @@ import {
   mergeSave,
   writeSave,
   slugify,
-  dedupeLibrary
+  ensureCheckIn,
+  sleepMinutesOf
 } from './lib/storage.js';
 import {
   calculateStats,
+  exerciseTotals,
   nextExerciseXP,
-  nutritionXP
+  nutritionXP,
+  XP_PER_LEVEL
 } from './lib/progression.js';
+import { quickFoods, findQuickFood, searchOpenFoodFacts } from './lib/nutrition.js';
+import { achievementSummary, sketchSVG } from './lib/achievements.js';
+import { exerciseIcon, exerciseDetail } from './lib/exercise.js';
 import {
-  quickFoods,
-  findQuickFood,
-  searchOpenFoodFacts
-} from './lib/nutrition.js';
-import {
-  achievementSummary,
-  sketchSVG
-} from './lib/achievements.js';
-import { $, $$, escapeHtml, localDateISO, dateFromISO, addDays, weekdayName, toast } from './lib/dom.js';
+  $,
+  $$,
+  escapeHtml,
+  localDateISO,
+  dateFromISO,
+  weekdayName,
+  mondayOf,
+  weekDatesOf,
+  timeLabel,
+  shortDateLabel,
+  dayTitle,
+  toast
+} from './lib/dom.js';
 
 let state = null;
 let titleTapCount = 0;
-let appStarted = false;
 let suppressSave = false;
 let draftWorkout = null;
 // A past date the player opened (null = today).
 let viewDate = null;
+// The calendar day of the last render, so a page left open past midnight can catch up.
+let renderedToday = localDateISO();
+// The logged exercise the dialog is editing: { date, key, index }, or null for a new entry.
+let editTarget = null;
+let saveFailed = false;
 
-const exerciseIcon = (name, type = 'strength', fallback = '') => {
-  if (fallback && fallback !== '⚔️') return fallback;
-  const value = String(name || '').toLowerCase();
-  const icons = [
-    [/treadmill|run|jog|sprint/, '🏃'], [/walk|hike/, '🥾'], [/bike|cycle|spin/, '🚴'],
-    [/row/, '🚣'], [/swim/, '🏊'], [/jump rope|skipping/, '🪢'], [/stair|step/, '🪜'],
-    [/bench|chest press|push.?up/, '🏋️'], [/curl|bicep/, '💪'], [/shoulder|overhead press/, '🙆'],
-    [/deadlift/, '🏗️'], [/squat|leg press/, '🦵'], [/lunge/, '🤺'], [/calf/, '🦶'],
-    [/pull.?up|lat pull/, '🧗'], [/plank|core|crunch|sit.?up/, '🧘'], [/fly|deltoid/, '🪽'],
-    [/yoga|stretch|mobility/, '🤸'], [/boxing|punch|kickbox/, '🥊'], [/dance/, '💃']
-  ];
-  return icons.find(([pattern]) => pattern.test(value))?.[1] || (type === 'cardio' ? '❤️' : '🏋️');
-};
-
+const CHECK_IN_INPUTS = [
+  '#dailyWeight',
+  '#dailyWeightUnit',
+  '#dailySleepHours',
+  '#dailySleepMinutes',
+  '#dailyWater'
+];
 
 // Save right away so other modules never read (and then overwrite) stale data.
 function saveState() {
   if (!state || suppressSave) return;
-  void writeSave(state, { source: 'app' });
+  if (writeSave(state, { source: 'app' })) {
+    saveFailed = false;
+    return;
+  }
+  // render() saves every time; warn once per run of failures, not on every action.
+  if (saveFailed) return;
+  saveFailed = true;
+  toast('⚠️ LEVEL IRL could not save. Storage may be full. Use Backup to export your campaign.', {
+    tone: 'warn',
+    duration: 6000
+  });
 }
 
 // Another module or tab saved: adopt its copy so the next save doesn't undo it.
 async function reloadState() {
-  const stored = (await readSave())?.save;
+  // Never render inside another module's save dispatch.
+  await Promise.resolve();
+  const stored = readSave();
   if (!stored) return;
   state = mergeSave(stored, seedData);
   suppressSave = true;
-  try { render(); } finally { suppressSave = false; }
+  try {
+    render();
+  } finally {
+    suppressSave = false;
+  }
 }
 
 // Don't clobber a value the player is typing when the screen re-renders.
@@ -68,21 +91,37 @@ function setInputValue(input, value) {
   if (input && input.dataset.dirty !== 'true') input.value = value;
 }
 
+function clearDirty(selectors) {
+  selectors.forEach(selector => {
+    const input = $(selector);
+    if (input) delete input.dataset.dirty;
+  });
+}
+
 const activeDate = () => viewDate || localDateISO();
 
 // Switch the screen to another day (or back to today) and tell other modules.
 function setViewDate(date) {
   const today = localDateISO();
+  if (date && date > today) {
+    toast('📅 Future dates can’t be opened.');
+    return;
+  }
+  const previous = viewDate || renderedToday;
   viewDate = date && date !== today ? date : null;
+  renderedToday = today;
   draftWorkout = null;
-  document.documentElement.dataset.activeDate = activeDate();
+  // Values typed for one day must not be shown or saved on another.
+  if (activeDate() !== previous) clearDirty(CHECK_IN_INPUTS);
+  document.documentElement.dataset.activeDate = viewDate || '';
   render();
   window.dispatchEvent(new CustomEvent('fitquest:active-date', { detail: { date: activeDate() } }));
 }
 
+// Shown above every screen, since Nutrition and Training also log to the viewed day.
 function renderViewBanner() {
-  const hero = $('.hero.card');
-  if (!hero) return;
+  const homeTitle = $('#fitquestScreen-home .fitquest-screen-title h2');
+  if (homeTitle) homeTitle.textContent = viewDate ? shortDateLabel(viewDate) : 'Today';
   let banner = $('#viewDateBanner');
   if (!viewDate) {
     banner?.remove();
@@ -92,7 +131,12 @@ function renderViewBanner() {
     banner = document.createElement('div');
     banner.id = 'viewDateBanner';
     banner.className = 'view-date-banner';
-    hero.prepend(banner);
+  }
+  const host = $('#fitquestScreenHost');
+  if (host) {
+    if (banner.nextElementSibling !== host) host.before(banner);
+  } else if (banner.parentElement !== $('#appRoot main')) {
+    $('#appRoot main')?.prepend(banner);
   }
   banner.innerHTML = `
     <span>📅 Viewing ${escapeHtml(formatDate(viewDate))}</span>
@@ -101,102 +145,59 @@ function renderViewBanner() {
   $('#backToTodayBtn').addEventListener('click', () => setViewDate(null));
 }
 
+// The viewed day's workout, or an unsaved draft that the first logged move turns into a record.
 function activeWorkout() {
-  const today = activeDate();
-
-  let workout =
-    state.workouts.find(
-      w => w.date === today
-    );
-
-  if (!workout) {
-    const day = weekdayName(today);
-
-    const number =
-      state.workouts.length + 1;
-
-    if (draftWorkout?.date === today) return draftWorkout;
-    workout = {
-      id:
-        `${today}-day-${number}-${Date.now()}`,
-      date: today,
-      day,
-      title:
-        `Day ${number}: A New Quest`,
-      startTime: '',
-      startTimeExact:
-        new Date().toLocaleTimeString(
-          [],
-          {
-            hour: 'numeric',
-            minute: '2-digit'
-          }
-        ),
-      startedAt: new Date().toISOString(),
-      note:
-        'A new adventure begins.',
-      exercises: [],
-      transient: true
-    };
-    draftWorkout = workout;
-  }
-
-  return workout;
+  const date = activeDate();
+  const workout = state.workouts.find(w => w.date === date);
+  if (workout) return workout;
+  if (draftWorkout?.date === date) return draftWorkout;
+  draftWorkout = {
+    id: `${date}-day-${Date.now()}`,
+    date,
+    day: weekdayName(date),
+    title: 'A New Adventure',
+    startTime: '',
+    startTimeExact: null,
+    note: 'A new adventure begins.',
+    exercises: [],
+    transient: true
+  };
+  return draftWorkout;
 }
 
 function formatDate(dateString) {
-  return new Intl.DateTimeFormat(
-    'en-US',
-    {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric'
-    }
-  ).format(
-    new Date(
-      `${dateString}T12:00:00`
-    )
-  );
+  const date = dateFromISO(dateString);
+  if (Number.isNaN(date.getTime())) return String(dateString ?? '');
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(date);
 }
 
 function calculateAge(dob) {
   if (!dob) return null;
 
-  const birth =
-    new Date(`${dob}T12:00:00`);
+  const birth = dateFromISO(dob);
 
-  if (
-    Number.isNaN(
-      birth.getTime()
-    )
-  ) {
+  if (Number.isNaN(birth.getTime())) {
     return null;
   }
 
   const now = new Date();
 
-  let age =
-    now.getFullYear() -
-    birth.getFullYear();
+  let age = now.getFullYear() - birth.getFullYear();
 
   const beforeBirthday =
-    now.getMonth() <
-      birth.getMonth() ||
-    (
-      now.getMonth() ===
-        birth.getMonth() &&
-      now.getDate() <
-        birth.getDate()
-    );
+    now.getMonth() < birth.getMonth() ||
+    (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
 
   if (beforeBirthday) {
     age--;
   }
 
-  return age >= 0
-    ? age
-    : null;
+  return age >= 0 ? age : null;
 }
 
 // Split total inches into feet and inches, rounding first so 71.97" never shows as 5'12".
@@ -207,259 +208,127 @@ function feetAndInches(totalInches) {
 }
 
 function parseHeight(text) {
-  const raw =
-    String(text || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[’′]/g, "'")
-      .replace(/[“”″]/g, '"');
+  const raw = String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[’′]/g, "'")
+    .replace(/[“”″]/g, '"');
 
   if (!raw) {
     return null;
   }
 
-  let m =
-    raw.match(
-      /^(\d+)\s*'\s*(\d{1,2}(?:\.\d+)?)\s*(?:"|in(?:ches?)?)?$/
-    );
+  let m = raw.match(/^(\d+)\s*'\s*(\d{1,2}(?:\.\d+)?)\s*(?:"|in(?:ches?)?)?$/);
 
   if (m) {
-    const feet =
-      Number(m[1]);
+    const feet = Number(m[1]);
 
-    const inches =
-      Number(m[2]);
+    const inches = Number(m[2]);
 
-    if (
-      feet < 2 ||
-      feet > 9 ||
-      inches < 0 ||
-      inches >= 12
-    ) {
+    if (feet < 2 || feet > 9 || inches < 0 || inches >= 12) {
       return null;
     }
 
-    const total =
-      feet * 12 + inches;
+    const total = feet * 12 + inches;
 
     return {
-      heightDisplay:
-        `${feet}'${
-          Number.isInteger(inches)
-            ? inches
-            : inches.toFixed(1)
-        }"`,
+      heightDisplay: `${feet}'${Number.isInteger(inches) ? inches : inches.toFixed(1)}"`,
 
-      heightInches:
-        total,
+      heightInches: total,
 
-      heightCm:
-        +(total * 2.54)
-          .toFixed(1)
+      heightCm: +(total * 2.54).toFixed(1)
     };
   }
 
-  m =
-    raw.match(
-      /^(\d+(?:\.\d+)?)\s*(?:in|inch|inches|")$/
-    );
+  m = raw.match(/^(\d+(?:\.\d+)?)\s*(?:in|inch|inches|")$/);
 
   if (m) {
-    const total =
-      Number(m[1]);
+    const total = Number(m[1]);
 
-    if (
-      total < 36 ||
-      total > 108
-    ) {
+    if (total < 36 || total > 108) {
       return null;
     }
 
-    const { feet, inches } =
-      feetAndInches(total);
+    const { feet, inches } = feetAndInches(total);
 
     return {
-      heightDisplay:
-        `${feet}'${inches}"`,
+      heightDisplay: `${feet}'${inches}"`,
 
-      heightInches:
-        total,
+      heightInches: total,
 
-      heightCm:
-        +(total * 2.54)
-          .toFixed(1)
+      heightCm: +(total * 2.54).toFixed(1)
     };
   }
 
-  m =
-    raw.match(
-      /^(\d+(?:\.\d+)?)\s*(?:cm|centimeters?|centimetres?)$/
-    );
+  m = raw.match(/^(\d+(?:\.\d+)?)\s*(?:cm|centimeters?|centimetres?)$/);
 
   if (m) {
-    const cm =
-      Number(m[1]);
+    const cm = Number(m[1]);
 
-    if (
-      cm < 90 ||
-      cm > 275
-    ) {
+    if (cm < 90 || cm > 275) {
       return null;
     }
 
-    const total =
-      cm / 2.54;
+    const total = cm / 2.54;
 
-    const { feet, inches } =
-      feetAndInches(total);
+    const { feet, inches } = feetAndInches(total);
 
     return {
-      heightDisplay:
-        `${feet}'${inches}" (${cm} cm)`,
+      heightDisplay: `${feet}'${inches}" (${cm} cm)`,
 
-      heightInches:
-        +total.toFixed(1),
+      heightInches: +total.toFixed(1),
 
-      heightCm:
-        cm
+      heightCm: cm
     };
   }
 
   return null;
 }
 
-function getCheckIn(
-  date = activeWorkout().date
-) {
-  state.checkIns ||= [];
-
-  return (
-    state.checkIns.find(
-      c => c.date === date
-    ) || null
-  );
+function getCheckIn(date = activeDate()) {
+  return state.checkIns.find(c => c.date === date) || null;
 }
 
-function upsertCheckIn(
-  patch,
-  date = activeWorkout().date
-) {
-  state.checkIns ||= [];
-
-  let item =
-    state.checkIns.find(
-      c => c.date === date
-    );
-
-  if (!item) {
-    item = {
-      id:
-        `checkin-${date}-${Date.now()}`,
-      date,
-      weight: null,
-      weightUnit: 'lb',
-      sleepHours: null,
-      waterOz: 0
-    };
-
-    state.checkIns.push(item);
-  }
-
-  Object.assign(
-    item,
-    patch
-  );
-
-  return item;
+function upsertCheckIn(patch, date = activeDate()) {
+  return Object.assign(ensureCheckIn(state, date), patch);
 }
 
 function render() {
   if (!state) return;
 
-  state.exerciseLibrary =
-    dedupeLibrary(
-      state.exerciseLibrary || []
-    );
+  const stats = calculateStats(state);
 
-  state.ui ||= {
-    stealthMode: false
-  };
+  const workout = activeWorkout();
 
-  state.checkIns ||= [];
+  const achievements = achievementSummary(state, stats);
 
-  const stats =
-    calculateStats(state);
+  document.body.classList.toggle('stealth-mode', !!state.ui.stealthMode);
 
-  const workout =
-    activeWorkout();
-
-  const achievements =
-    achievementSummary(
-      state,
-      stats
-    );
-
-  state.profile.level =
-    stats.level;
-
-  document.body.classList.toggle(
-    'stealth-mode',
-    !!state.ui.stealthMode
-  );
-
-  $('#levelValue').textContent =
-    stats.level;
+  $('#levelValue').textContent = stats.level;
 
   renderViewBanner();
 
-  $('#heroTitle').textContent =
-    workout.title;
+  $('#heroTitle').textContent = dayTitle(state.workouts, workout);
 
-  $('#heroDate').textContent =
-    `${formatDate(
-      workout.date
-    )} · ${
-      workout.startTimeExact ||
-      workout.startTime ||
-      'Adventure time'
-    }`;
+  $('#heroDate').textContent = `${formatDate(workout.date)} · ${
+    workout.startTimeExact || workout.startTime || 'Adventure time'
+  }`;
 
-  $('#xpText').textContent =
-    `${stats.levelXp} / 500 XP`;
+  $('#xpText').textContent = `${stats.levelXp} / ${XP_PER_LEVEL} XP`;
 
-  $('#xpBar').style.width =
-    `${stats.levelXp / 500 * 100}%`;
+  $('#xpBar').style.width = `${(stats.levelXp / XP_PER_LEVEL) * 100}%`;
 
-  $('#streakStat').textContent =
-    `${stats.streak} day${
-      stats.streak === 1
-        ? ''
-        : 's'
-    }`;
+  $('#streakStat').textContent = `${stats.streak} day${stats.streak === 1 ? '' : 's'}`;
 
-  $('#setsStat').textContent =
-    stats.strengthSets;
+  $('#setsStat').textContent = stats.strengthSets;
 
-  $('#cardioStat').textContent =
-    `${stats.cardio} min`;
+  $('#cardioStat').textContent = `${stats.cardio} min`;
 
-  $('#totalXpStat').textContent =
-    stats.xp;
+  $('#totalXpStat').textContent = stats.xp;
 
-  $('#rankTitle').textContent =
-    stats.level >= 10
-      ? 'Mythic Adventurer'
-      : stats.level >= 5
-      ? 'Veteran Adventurer'
-      : stats.level >= 2
-      ? 'Rising Adventurer'
-      : 'Novice Adventurer';
-
-  $('#opsStatus span:last-child')
-    .textContent =
-      state.ui.stealthMode
-        ? 'STEALTH INTERFACE · ACTIVE'
-        : 'TACTICAL FITNESS ACTION';
+  $('#opsStatus span:last-child').textContent = state.ui.stealthMode
+    ? 'STEALTH INTERFACE · ACTIVE'
+    : 'TACTICAL FITNESS ACTION';
 
   renderWorkout(workout);
   renderLibrary();
@@ -467,137 +336,74 @@ function render() {
   renderCheckIn();
   renderNutrition();
   renderWeek();
-  renderChronicle();
-  renderQuests(stats);
-  renderAchievements(
-    achievements
-  );
+  renderQuests();
+  renderAchievements(achievements);
 
   saveState();
 }
 
 function renderWorkout(workout) {
-  $('#workoutList').innerHTML =
-    (
-      workout.exercises || []
-    )
-      .map(
-        (e, index) => {
-          const distance =
-            e.type === 'cardio' &&
-            Number(e.distance)
-              ? ` · ${Number(
-                  e.distance
-                ).toFixed(
-                  Number(
-                    e.distance
-                  ) % 1
-                    ? 2
-                    : 0
-                )} ${escapeHtml(
-                  e.distanceUnit ||
-                  'mi'
-                )}`
-              : '';
-
-          return `
+  $('#workoutList').innerHTML = (workout.exercises || [])
+    .map((e, index) => {
+      return `
             <button
               class="workout-item interactive"
               data-edit-exercise="${index}"
             >
               <div class="workout-icon">
-                ${escapeHtml(
-                  exerciseIcon(e.name, e.type, e.icon)
-                )}
+                ${escapeHtml(exerciseIcon(e.name, e.type, e.icon))}
               </div>
 
               <div class="workout-copy">
                 <strong>
-                  ${escapeHtml(
-                    e.name
-                  )}
+                  ${escapeHtml(e.name)}
                 </strong>
 
                 <small>
-                  ${
-                    e.type ===
-                    'cardio'
-                      ? `${e.duration} minutes${distance}`
-                      : `${e.sets} sets × ${e.reps} reps${
-                          e.weight
-                            ? ` · ${escapeHtml(
-                                e.weight
-                              )}`
-                            : ' · weight not recorded'
-                        }`
-                  }
+                  ${exerciseDetail(e)}
                 </small>
               </div>
 
               <span class="xp-tag">
-                +${e.xp || 0} XP
+                +${Number(e.xp) || 0} XP
               </span>
             </button>
           `;
-        }
-      )
-      .join('');
+    })
+    .join('');
 
-  $$(
-    '[data-edit-exercise]'
-  ).forEach(btn =>
-    btn.addEventListener(
-      'click',
-      () =>
-        openExerciseDialog(
-          workout.exercises[
-            +btn.dataset
-              .editExercise
-          ],
-          +btn.dataset
-            .editExercise
-        )
+  $$('[data-edit-exercise]').forEach(btn =>
+    btn.addEventListener('click', () =>
+      openExerciseDialog(workout.exercises[+btn.dataset.editExercise], +btn.dataset.editExercise)
     )
   );
 }
 
 function renderLibrary() {
-  $('#exerciseLibrary')
-    .innerHTML =
-      state.exerciseLibrary
-        .map(
-          e => `
+  $('#exerciseLibrary').innerHTML =
+    state.exerciseLibrary
+      .map(
+        (e, index) => `
             <button
               class="codex-tile"
-              data-library-id="${escapeHtml(
-                e.id
-              )}"
+              data-library-index="${index}"
             >
               <span>
-                ${escapeHtml(
-                  exerciseIcon(e.name, e.type, e.icon)
-                )}
+                ${escapeHtml(exerciseIcon(e.name, e.type, e.icon))}
               </span>
 
               <strong>
-                ${escapeHtml(
-                  e.name
-                )}
+                ${escapeHtml(e.name)}
               </strong>
 
               <small>
-                ${
-                  e.type ===
-                  'cardio'
-                    ? 'Cardio'
-                    : 'Strength'
-                }
+                ${e.type === 'cardio' ? 'Cardio' : 'Strength'}
               </small>
             </button>
           `
-        )
-        .join('') +
-      `
+      )
+      .join('') +
+    `
         <button
           class="codex-tile add-new"
           id="codexAddNew"
@@ -608,335 +414,135 @@ function renderLibrary() {
         </button>
       `;
 
-  $$(
-    '[data-library-id]'
-  ).forEach(btn =>
-    btn.addEventListener(
-      'click',
-      () =>
-        openExerciseDialog(
-          state.exerciseLibrary
-            .find(
-              e =>
-                e.id ===
-                btn.dataset
-                  .libraryId
-            )
-        )
-    )
+  $$('[data-library-index]').forEach(btn =>
+    btn.addEventListener('click', () => openExerciseDialog(state.exerciseLibrary[+btn.dataset.libraryIndex]))
   );
 
-  $('#codexAddNew')
-    ?.addEventListener(
-      'click',
-      () =>
-        openExerciseDialog()
-    );
+  $('#codexAddNew')?.addEventListener('click', () => openExerciseDialog());
 }
 
 function renderProfile() {
-  const p =
-    state.profile;
+  const p = state.profile;
 
-  const age =
-    calculateAge(
-      p.dateOfBirth
-    );
+  const age = calculateAge(p.dateOfBirth);
+
+  const dob = p.dateOfBirth ? dateFromISO(p.dateOfBirth) : null;
 
   $('#dobReadout').textContent =
-    p.dateOfBirth
-      ? new Intl.DateTimeFormat(
-          'en-US',
-          {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          }
-        ).format(
-          new Date(
-            `${p.dateOfBirth}T12:00:00`
-          )
-        )
+    dob && !Number.isNaN(dob.getTime())
+      ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(dob)
       : 'Not set';
 
-  $('#ageReadout').textContent =
-    age ??
-    (
-      p.age
-        ? `${p.age}*`
-        : '—'
-    );
+  $('#ageReadout').textContent = age ?? (p.age ? `${p.age}*` : '—');
 
-  $('#heightReadout')
-    .textContent =
-      p.heightDisplay ||
-      (
-        p.height
-          ? `${p.height} ${
-              p.heightUnit ||
-              'in'
-            }*`
-          : 'Not set'
-      );
+  $('#heightReadout').textContent =
+    p.heightDisplay || (p.height ? `${p.height} ${p.heightUnit || 'in'}*` : 'Not set');
 
-  $('#profileDob').value =
-    p.dateOfBirth || '';
+  $('#profileDob').value = p.dateOfBirth || '';
 
-  $('#profileHeightText')
-    .value =
-      p.heightDisplay || '';
+  // parseHeight can't read back the cm display form (5'10.1" (178 cm)), so offer the cm value.
+  $('#profileHeightText').value =
+    p.heightCm && String(p.heightDisplay || '').endsWith('cm)') ? `${p.heightCm} cm` : p.heightDisplay || '';
 
-  $('#characterGoal')
-    .textContent =
-      `Goal: ${
-        p.goal ||
-        'Slim & Tone'
-      }`;
+  const complete = Boolean(p.dateOfBirth && p.heightDisplay);
 
-  const complete =
-    Boolean(
-      p.dateOfBirth &&
-      p.heightDisplay
-    );
-
-  $('#profileCompletion')
-    .textContent =
-      complete
-        ? 'Identity stats locked · age updates automatically'
-        : (
-            p.age ||
-            p.height
-          )
-        ? 'Legacy stats detected · set DOB and height once to upgrade your dossier'
-        : 'Set DOB and height once; daily measurements live below';
+  $('#profileCompletion').textContent = complete
+    ? 'Identity stats locked · age updates automatically'
+    : p.age || p.height
+      ? 'Older stats found · set DOB and height once to upgrade your dossier'
+      : 'Set DOB and height once; daily measurements live below';
 }
 
 function renderCheckIn() {
-  const date =
-    activeWorkout().date;
+  const date = activeDate();
 
-  const c =
-    getCheckIn(date);
+  const c = getCheckIn(date);
 
-  $('#checkInDateLabel')
-    .textContent =
-      formatDate(date)
-        .replace(
-          /, \d{4}$/,
-          ''
-        );
+  $('#checkInDateLabel').textContent = shortDateLabel(date);
 
-  setInputValue(
-    $('#dailyWeight'),
-    c?.weight ?? ''
-  );
+  setInputValue($('#dailyWeight'), c?.weight ?? '');
 
-  setInputValue(
-    $('#dailyWeightUnit'),
-    c?.weightUnit || 'lb'
-  );
+  setInputValue($('#dailyWeightUnit'), c?.weightUnit || 'lb');
 
-  const sleepTotal =
-    c?.sleepMinutes != null
-      ? Number(
-          c.sleepMinutes
-        )
-      : c?.sleepHours != null
-      ? Math.round(
-          Number(
-            c.sleepHours
-          ) * 60
-        )
-      : null;
+  const sleepTotal = sleepMinutesOf(c);
 
-  setInputValue(
-    $('#dailySleepHours'),
-    sleepTotal == null
-      ? ''
-      : Math.floor(sleepTotal / 60)
-  );
+  setInputValue($('#dailySleepHours'), sleepTotal == null ? '' : Math.floor(sleepTotal / 60));
 
-  setInputValue(
-    $('#dailySleepMinutes'),
-    sleepTotal == null
-      ? ''
-      : sleepTotal % 60
-  );
+  setInputValue($('#dailySleepMinutes'), sleepTotal == null ? '' : sleepTotal % 60);
 
-  $('#dailyWater').value =
-    c?.waterOz ?? 0;
+  setInputValue($('#dailyWater'), c?.waterOz ?? 0);
 
   const bits = [];
 
   if (c?.weight) {
-    bits.push(
-      `⚖️ ${c.weight} ${c.weightUnit}`
-    );
+    bits.push(`⚖️ ${c.weight} ${c.weightUnit}`);
   }
 
-  if (
-    sleepTotal != null
-  ) {
-    const sh =
-      Math.floor(
-        sleepTotal / 60
-      );
+  if (sleepTotal != null) {
+    const sh = Math.floor(sleepTotal / 60);
 
-    const sm =
-      sleepTotal % 60;
+    const sm = sleepTotal % 60;
 
-    bits.push(
-      `😴 ${sh}h${
-        sm
-          ? ` ${sm}m`
-          : ''
-      } sleep`
-    );
+    bits.push(`😴 ${sh}h${sm ? ` ${sm}m` : ''} sleep`);
   }
 
-  bits.push(
-    `💧 ${Number(
-      c?.waterOz || 0
-    )} oz water`
-  );
+  bits.push(`💧 ${Number(c?.waterOz || 0)} oz water`);
 
-  $('#checkInSummary')
-    .innerHTML =
-      bits
-        .map(
-          x =>
-            `<span>${escapeHtml(
-              x
-            )}</span>`
-        )
-        .join('');
+  $('#checkInSummary').innerHTML = bits.map(x => `<span>${escapeHtml(x)}</span>`).join('');
 }
 
 function renderNutrition() {
-  const workoutDate =
-    activeWorkout().date;
+  const workoutDate = activeDate();
 
-  const entries =
-    (
-      state.nutrition ||
-      []
-    ).filter(
-      n =>
-        n.date ===
-        workoutDate
-    );
+  const entries = (state.nutrition || []).filter(n => n.date === workoutDate);
 
-  const totals =
-    entries.reduce(
-      (acc, e) => {
-        [
-          'calories',
-          'protein',
-          'carbs',
-          'fat'
-        ].forEach(
-          key =>
-            acc[key] +=
-              Number(
-                e[key]
-              ) || 0
-        );
+  const totals = entries.reduce(
+    (acc, e) => {
+      ['calories', 'protein', 'carbs', 'fat'].forEach(key => (acc[key] += Number(e[key]) || 0));
 
-        return acc;
-      },
-      {
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0
-      }
-    );
+      return acc;
+    },
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
 
-  $('#calorieTotal')
-    .textContent =
-      Math.round(
-        totals.calories
-      );
+  $('#calorieTotal').textContent = Math.round(totals.calories);
 
-  $('#proteinTotal')
-    .textContent =
-      `${Math.round(
-        totals.protein
-      )}g`;
+  $('#proteinTotal').textContent = `${Math.round(totals.protein)}g`;
 
-  $('#carbTotal')
-    .textContent =
-      `${Math.round(
-        totals.carbs
-      )}g`;
+  $('#carbTotal').textContent = `${Math.round(totals.carbs)}g`;
 
-  $('#fatTotal')
-    .textContent =
-      `${Math.round(
-        totals.fat
-      )}g`;
+  $('#fatTotal').textContent = `${Math.round(totals.fat)}g`;
 
-  $('#foodLog').innerHTML =
-    entries.length
-      ? entries
-          .map(
-            e => `
+  $('#foodLog').innerHTML = entries.length
+    ? entries
+        .map(
+          e => `
               <div class="food-row">
                 <span>
-                  ${escapeHtml(
-                    e.icon ||
-                    '🍽️'
-                  )}
+                  ${escapeHtml(e.icon || '🍽️')}
                 </span>
 
                 <div>
                   <strong>
-                    ${escapeHtml(
-                      e.name
-                    )}
+                    ${escapeHtml(e.name)}
                   </strong>
 
                   <small>
-                    ${escapeHtml(
-                      e.serving ||
-                      '1 serving'
-                    )}
-                    · ${Math.round(
-                      Number(
-                        e.calories
-                      ) || 0
-                    )} cal
-                    ${
-                      e.source
-                        ? ` · ${escapeHtml(
-                            e.source
-                          )}`
-                        : ''
-                    }
-                    ${
-                      Number(
-                        e.hydrationOz
-                      )
-                        ? ` · 💧 ${Number(
-                            e.hydrationOz
-                          )} oz`
-                        : ''
-                    }
+                    ${escapeHtml(e.serving || '1 serving')}
+                    · ${Math.round(Number(e.calories) || 0)} cal
+                    ${e.source ? ` · ${escapeHtml(e.source)}` : ''}
+                    ${Number(e.hydrationOz) ? ` · 💧 ${Number(e.hydrationOz)} oz` : ''}
                   </small>
                 </div>
 
                 <b>
-                  ${Math.round(
-                    Number(
-                      e.protein
-                    ) || 0
-                  )}g P
+                  ${Math.round(Number(e.protein) || 0)}g P
                 </b>
               </div>
             `
-          )
-          .join('')
-      : `
+        )
+        .join('')
+    : `
           <div class="empty-state">
             No provisions logged yet.
             Add your first meal when you’re ready.
@@ -944,20 +550,13 @@ function renderNutrition() {
         `;
 }
 
-function mondayOf(iso) {
-  const jsDay = dateFromISO(iso).getDay();
-  return addDays(iso, -((jsDay + 6) % 7));
-}
-
 function renderWeek() {
   const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const monday = mondayOf(localDateISO());
-  const weekDates = labels.map((_, index) => addDays(monday, index));
+  const weekDates = weekDatesOf(localDateISO());
+  const monday = weekDates[0];
   const weekSet = new Set(weekDates);
 
-  const loggedWorkouts = state.workouts.filter(
-    w => Array.isArray(w.exercises) && w.exercises.length > 0
-  );
+  const loggedWorkouts = state.workouts.filter(w => Array.isArray(w.exercises) && w.exercises.length > 0);
   const workoutDates = new Set(loggedWorkouts.map(w => w.date));
 
   $('#weekGrid').innerHTML = labels
@@ -983,506 +582,194 @@ function renderWeek() {
 
   const thisWeek = loggedWorkouts.filter(w => weekSet.has(w.date));
   const exercises = thisWeek.flatMap(w => w.exercises);
-  const sets = exercises
-    .filter(e => e.type === 'strength')
-    .reduce((n, e) => n + (Number(e.sets) || 0), 0);
-  const cardio = exercises
-    .filter(e => e.type === 'cardio')
-    .reduce((n, e) => n + (Number(e.duration) || 0), 0);
+  const { strengthSets: sets, cardio } = exerciseTotals(exercises);
   const days = new Set(thisWeek.map(w => w.date)).size;
 
   $('#weeklySummary').textContent =
     `This week: ${days} adventure${days === 1 ? '' : 's'} · ${sets} strength sets · ${cardio} cardio minutes.`;
 }
 
-function renderChronicle() {
-  const workouts =
-    [...(
-      state.workouts ||
-      []
-    )]
-      .filter(
-        w =>
-          (
-            w.exercises ||
-            []
-          ).length
-      )
-      .sort(
-        (a, b) =>
-          String(
-            b.date || ''
-          ).localeCompare(
-            String(
-              a.date || ''
-            )
-          )
-      )
-      .slice(0, 8);
+function renderQuests() {
+  const workout = activeWorkout();
 
-  $('#chronicle')
-    .innerHTML =
-      workouts.length
-        ? workouts
-            .map(
-              workout => {
-                const exercises =
-                  workout
-                    .exercises ||
-                  [];
+  const exerciseCount = (workout.exercises || []).length;
 
-                const xp =
-                  exercises
-                    .reduce(
-                      (
-                        total,
-                        exercise
-                      ) =>
-                        total +
-                        (
-                          Number(
-                            exercise.xp
-                          ) ||
-                          0
-                        ),
-                      0
-                    );
+  const checkIn = getCheckIn(workout.date);
 
-                return `
-                  <div class="chronicle-entry">
-                    <span>
-                      ${escapeHtml(
-                        workout.day ||
-                        ''
-                      )}
-                    </span>
-
-                    <div>
-                      <strong>
-                        ${escapeHtml(
-                          workout.title ||
-                          'Adventure'
-                        )}
-                      </strong>
-
-                      <small>
-                        ${escapeHtml(
-                          formatDate(
-                            workout.date
-                          )
-                        )}
-                        · ${
-                          exercises.length
-                        } move${
-                          exercises.length ===
-                          1
-                            ? ''
-                            : 's'
-                        }
-                        · ${xp} XP
-                      </small>
-                    </div>
-                  </div>
-                `;
-              }
-            )
-            .join('')
-        : `
-            <div class="empty-state">
-              Your campaign story will appear here.
-            </div>
-          `;
-}
-
-function renderQuests(stats) {
-  const workout =
-    activeWorkout();
-
-  const exerciseCount =
-    (
-      workout.exercises ||
-      []
-    ).length;
-
-  const checkIn =
-    getCheckIn(
-      workout.date
-    );
-
-  const nutritionCount =
-    (
-      state.nutrition ||
-      []
-    ).filter(
-      item =>
-        item.date ===
-        workout.date
-    ).length;
+  const nutritionCount = (state.nutrition || []).filter(item => item.date === workout.date).length;
 
   const quests = [
+    { name: 'Complete one training move', complete: exerciseCount > 0 },
     {
-      name:
-        'Complete one training move',
-      complete:
-        exerciseCount > 0
+      name: 'Log your daily recovery intel',
+      complete: Boolean(checkIn && (checkIn.weight || checkIn.sleepMinutes != null || checkIn.waterOz))
     },
-    {
-      name:
-        'Log your daily recovery intel',
-      complete:
-        Boolean(
-          checkIn &&
-          (
-            checkIn.weight ||
-            checkIn.sleepMinutes != null ||
-            checkIn.waterOz
-          )
-        )
-    },
-    {
-      name:
-        'Log today’s provisions',
-      complete:
-        nutritionCount > 0
-    }
+    { name: 'Log today’s provisions', complete: nutritionCount > 0 }
   ];
 
-  const complete =
-    quests.filter(
-      quest =>
-        quest.complete
-    ).length;
+  const complete = quests.filter(quest => quest.complete).length;
 
-  $('#questCount')
-    .textContent =
-      `${complete}/${quests.length}`;
+  $('#questCount').textContent = `${complete}/${quests.length}`;
 
-  $('#questList')
-    .innerHTML =
-      quests
-        .map(
-          quest => `
-            <div class="quest-item ${
-              quest.complete
-                ? 'complete'
-                : ''
-            }">
+  $('#questList').innerHTML = quests
+    .map(
+      quest => `
+            <div class="mini-quest ${quest.complete ? 'done' : ''}">
               <span>
-                ${
-                  quest.complete
-                    ? '✓'
-                    : '○'
-                }
+                ${quest.complete ? '✓' : '○'}
               </span>
 
               <strong>
-                ${escapeHtml(
-                  quest.name
-                )}
+                ${escapeHtml(quest.name)}
               </strong>
             </div>
           `
-        )
-        .join('');
+    )
+    .join('');
 }
 
-function renderAchievements(
-  summary
-) {
-  $('#achievementCount')
-    .textContent =
-      `${
-        summary.unlocked.length
-      } / ${
-        summary.total
-          .toLocaleString()
-      }`;
+function renderAchievements(summary) {
+  $('#achievementCount').textContent = `${summary.unlocked.length} / ${summary.total.toLocaleString()}`;
 
-  const unlocked =
-    summary.unlocked
-      .slice(-3)
-      .reverse();
+  const unlocked = summary.unlocked.slice(-3).reverse();
 
-  const upcoming =
-    summary.archive
-      .filter(
-        a =>
-          !a.unlocked &&
-          a.kind !==
-            'landmark' &&
-          a.kind !==
-            'secret'
-      )
-      .slice(0, 2);
+  const upcoming = summary.archive
+    .filter(a => !a.unlocked && a.kind !== 'landmark' && a.kind !== 'secret')
+    .slice(0, 2);
 
-  const cards =
-    [
-      ...unlocked,
-      ...upcoming
-    ].slice(0, 5);
+  const cards = [...unlocked, ...upcoming].slice(0, 5);
 
-  $('#achievementPreview')
-    .innerHTML =
-      cards
-        .map(
-          a => `
-            <div class="achievement ${
-              a.unlocked
-                ? 'unlocked'
-                : 'locked'
-            }">
+  $('#achievementPreview').innerHTML = cards
+    .map(
+      a => `
+            <div class="achievement ${a.unlocked ? 'unlocked' : 'locked'}">
               <span>
-                ${
-                  a.unlocked
-                    ? a.icon
-                    : '🔒'
-                }
+                ${a.unlocked ? a.icon : '🔒'}
               </span>
 
               <div>
                 <strong>
-                  ${escapeHtml(
-                    a.name
-                  )}
+                  ${escapeHtml(a.name)}
                 </strong>
 
                 <small>
-                  ${
-                    a.unlocked
-                      ? (
-                          a.flavor ||
-                          'Achievement unlocked'
-                        )
-                      : `Target: ${a.target.toLocaleString()}`
-                  }
+                  ${a.unlocked ? a.flavor || 'Achievement unlocked' : `Target: ${a.target.toLocaleString()}`}
                 </small>
               </div>
             </div>
           `
-        )
-        .join('');
+    )
+    .join('');
 
-  $('#distanceTotal')
-    .textContent =
-      `${summary.distance.toFixed(
-        2
-      )} mi`;
+  $('#distanceTotal').textContent = `${summary.distance.toFixed(2)} mi`;
 
-  const next =
-    summary.nextLandmark;
+  const next = summary.nextLandmark;
 
-  $('#nextLandmarkName')
-    .textContent =
-      next.unlocked
-        ? 'Atlas Campaign Complete'
-        : next.name;
+  $('#nextLandmarkName').textContent = next.unlocked ? 'Atlas Campaign Complete' : next.name;
 
-  $('#nextLandmarkProgress')
-    .textContent =
-      next.unlocked
-        ? 'Legendary distance achieved.'
-        : `${next.remaining.toFixed(
-            2
-          )} mi remaining · ${
-            next.place
-          }`;
+  $('#nextLandmarkProgress').textContent = next.unlocked
+    ? 'Legendary distance achieved.'
+    : `${next.remaining.toFixed(2)} mi remaining · ${next.place}`;
 
-  const prevIndex =
-    summary.landmarks
-      .findIndex(
-        l =>
-          l.id ===
-          next.id
-      ) - 1;
+  const prevIndex = summary.landmarks.findIndex(l => l.id === next.id) - 1;
 
-  const prevMiles =
-    prevIndex >= 0
-      ? summary.landmarks[
-          prevIndex
-        ].miles
-      : 0;
+  const prevMiles = prevIndex >= 0 ? summary.landmarks[prevIndex].miles : 0;
 
-  const pct =
-    next.unlocked
-      ? 100
-      : Math.max(
-          0,
-          Math.min(
-            100,
-            (
-              (
-                summary.distance -
-                prevMiles
-              ) /
-              (
-                next.miles -
-                prevMiles
-              )
-            ) * 100
-          )
-        );
+  const pct = next.unlocked
+    ? 100
+    : Math.max(0, Math.min(100, ((summary.distance - prevMiles) / (next.miles - prevMiles)) * 100));
 
-  $('#landmarkBar')
-    .style.width =
-      `${pct}%`;
+  $('#landmarkBar').style.width = `${pct}%`;
 
-  const unlockedLandmarks =
-    summary.landmarks.filter(
-      l => l.unlocked
-    );
+  const unlockedLandmarks = summary.landmarks.filter(l => l.unlocked);
 
-  const visible = [
-    ...unlockedLandmarks
-      .slice(-3),
+  const visible = [...unlockedLandmarks.slice(-3), ...summary.landmarks.filter(l => !l.unlocked).slice(0, 4)];
 
-    ...summary.landmarks
-      .filter(
-        l =>
-          !l.unlocked
-      )
-      .slice(0, 4)
-  ];
-
-  $('#landmarkGrid')
-    .innerHTML =
-      visible
-        .map(
-          l => `
+  $('#landmarkGrid').innerHTML = visible
+    .map(
+      l => `
             <article
-              class="landmark ${
-                l.unlocked
-                  ? 'unlocked'
-                  : 'locked'
-              }"
+              class="landmark ${l.unlocked ? 'unlocked' : 'locked'}"
             >
               <div class="sketch">
-                ${sketchSVG(
-                  l.sketch
-                )}
+                ${sketchSVG(l.sketch)}
               </div>
 
               <div class="landmark-copy">
                 <span>
-                  ${
-                    l.unlocked
-                      ? 'FIELD STAMPED'
-                      : 'DISTANCE TARGET'
-                  }
+                  ${l.unlocked ? 'FIELD STAMPED' : 'DISTANCE TARGET'}
                 </span>
 
                 <strong>
-                  ${escapeHtml(
-                    l.name
-                  )}
+                  ${escapeHtml(l.name)}
                 </strong>
 
                 <small>
-                  ${escapeHtml(
-                    l.place
-                  )}
-                  · ${
-                    l.miles
-                      .toLocaleString()
-                  } mi
+                  ${escapeHtml(l.place)}
+                  · ${l.miles.toLocaleString()} mi
                 </small>
 
                 <p>
-                  ${
-                    l.unlocked
-                      ? escapeHtml(
-                          l.flavor
-                        )
-                      : `${l.remaining.toFixed(
-                          2
-                        )} mi to unlock`
-                  }
+                  ${l.unlocked ? escapeHtml(l.flavor) : `${l.remaining.toFixed(2)} mi to unlock`}
                 </p>
               </div>
             </article>
           `
-        )
-        .join('');
+    )
+    .join('');
 }
 
-function openExerciseDialog(
-  exercise = null,
-  editIndex = null
-) {
-  const isLoggedExercise =
-    editIndex !== null;
+function openExerciseDialog(exercise = null, editIndex = null) {
+  const isLoggedExercise = editIndex !== null;
 
-  $('#exerciseDialogTitle')
-    .textContent =
-      isLoggedExercise
-        ? 'Edit Exercise'
-        : exercise
-        ? `Log ${exercise.name}`
-        : 'Teach LEVEL IRL a Move';
+  if (!isLoggedExercise && activeWorkout().completed) {
+    toast('🏁 This adventure has ended. Its moves can still be edited, but new ones can’t be added.');
+    return;
+  }
 
-  $('#exerciseEditIndex')
-    .value =
-      editIndex ?? '';
+  // Remember which record is being edited, so a date change or another
+  // module's save while the dialog is open can't redirect the edit.
+  editTarget = isLoggedExercise
+    ? { date: activeDate(), key: exercise?.id || exercise?.loggedAt || null, index: editIndex }
+    : null;
 
-  $('#exerciseName').value =
-    exercise?.name || '';
+  $('#exerciseDialogTitle').textContent = isLoggedExercise
+    ? 'Edit Exercise'
+    : exercise
+      ? `Log ${exercise.name}`
+      : 'Teach LEVEL IRL a Move';
 
-  $('#exerciseType').value =
-    exercise?.type ||
-    'strength';
+  $('#exerciseSubmitBtn').textContent = isLoggedExercise ? 'Save Changes' : 'Log the Move';
 
-  $('#exerciseIcon').value =
-    exercise?.icon ||
-    (
-      exercise?.type ===
-      'cardio'
-        ? '🏃'
-        : '⚔️'
-    );
+  $('#exerciseName').value = exercise?.name || '';
 
-  $('#exerciseSets').value =
-    exercise?.sets || 3;
+  $('#exerciseType').value = exercise?.type || 'strength';
 
-  $('#exerciseReps').value =
-    exercise?.reps || 10;
+  $('#exerciseIcon').value = exercise?.icon || (exercise?.type === 'cardio' ? '🏃' : '⚔️');
 
-  $('#exerciseWeight')
-    .value =
-      exercise?.weight ||
-      '';
+  $('#exerciseSets').value = exercise?.sets || 3;
 
-  $('#exerciseDuration')
-    .value =
-      exercise?.duration ||
-      20;
+  $('#exerciseReps').value = exercise?.reps || 10;
 
-  $('#exerciseDistance')
-    .value =
-      exercise?.distance ??
-      '';
+  $('#exerciseWeight').value = exercise?.weight || '';
 
-  $('#exerciseDistanceUnit')
-    .value =
-      exercise?.distanceUnit ||
-      'mi';
+  $('#exerciseDuration').value = exercise?.duration || 20;
+
+  $('#exerciseDistance').value = exercise?.distance ?? '';
+
+  $('#exerciseDistanceUnit').value = exercise?.distanceUnit || 'mi';
 
   updateExerciseFields();
 
-  $('#exerciseDialog')
-    .showModal();
+  $('#exerciseDialog').showModal();
 }
 
 function updateExerciseFields() {
-  const cardio =
-    $('#exerciseType')
-      .value === 'cardio';
+  const cardio = $('#exerciseType').value === 'cardio';
 
-  $('#strengthFields')
-    .hidden =
-      cardio;
+  $('#strengthFields').hidden = cardio;
 
-  $('#cardioFields')
-    .hidden =
-      !cardio;
+  $('#cardioFields').hidden = !cardio;
 }
 
 const TYPE_FIELDS = ['sets', 'reps', 'weight', 'duration', 'distance', 'distanceUnit'];
@@ -1491,40 +778,23 @@ const TYPE_FIELDS = ['sets', 'reps', 'weight', 'duration', 'distance', 'distance
 function mergeEditedExercise(previous = {}, entry) {
   const kept = { ...previous };
   TYPE_FIELDS.forEach(field => delete kept[field]);
-  return {
-    ...kept,
-    ...entry,
-    id: previous.id || entry.id,
-    loggedAt: previous.loggedAt || entry.loggedAt
-  };
+  return { ...kept, ...entry, id: previous.id || entry.id, loggedAt: previous.loggedAt || entry.loggedAt };
 }
 
 function saveExercise(ev) {
   ev.preventDefault();
 
-  const name =
-    $('#exerciseName')
-      .value
-      .trim();
+  const name = $('#exerciseName').value.trim();
 
   if (!name) return;
 
-  const type =
-    $('#exerciseType')
-      .value;
+  const type = $('#exerciseType').value;
 
-  const icon =
-    $('#exerciseIcon')
-      .value
-      .trim() || exerciseIcon(name, type);
+  const icon = $('#exerciseIcon').value.trim() || exerciseIcon(name, type);
 
-  const duration =
-    +$('#exerciseDuration')
-      .value || 1;
+  const duration = +$('#exerciseDuration').value || 1;
 
-  const distance =
-    +$('#exerciseDistance')
-      .value || 0;
+  const distance = +$('#exerciseDistance').value || 0;
 
   const loggedAt = new Date().toISOString();
   const entry =
@@ -1534,318 +804,191 @@ function saveExercise(ev) {
           type,
           name,
           duration,
-          distance:
-            distance || null,
-          distanceUnit:
-            $('#exerciseDistanceUnit')
-              .value,
+          distance: distance || null,
+          distanceUnit: $('#exerciseDistanceUnit').value,
           icon,
           loggedAt,
-          xp:
-            nextExerciseXP(
-              type,
-              0,
-              duration,
-              distance
-            )
+          xp: nextExerciseXP(type, 0, duration, distance)
         }
       : {
           id: `exercise-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           type,
           name,
-          sets:
-            +$('#exerciseSets')
-              .value || 1,
-          reps:
-            +$('#exerciseReps')
-              .value || 1,
-          weight:
-            $('#exerciseWeight')
-              .value
-              .trim() ||
-            null,
+          sets: +$('#exerciseSets').value || 1,
+          reps: +$('#exerciseReps').value || 1,
+          weight: $('#exerciseWeight').value.trim() || null,
           icon,
           loggedAt,
-          xp:
-            nextExerciseXP(
-              type,
-              +$('#exerciseSets')
-                .value
-            )
+          xp: nextExerciseXP(type, +$('#exerciseSets').value)
         };
 
-  const editIndex =
-    $('#exerciseEditIndex')
-      .value;
+  const editing = Boolean(editTarget);
 
-  const targetWorkout = activeWorkout();
-  if (targetWorkout.transient) {
-    delete targetWorkout.transient;
-    state.workouts.push(targetWorkout);
-    draftWorkout = null;
-  }
-
-  if (editIndex !== '') {
-    targetWorkout
-      .exercises[
-        +editIndex
-      ] = mergeEditedExercise(
-        targetWorkout.exercises[+editIndex],
-        entry
-      );
+  if (editTarget) {
+    const { date, key, index } = editTarget;
+    const workout = state.workouts.find(w => w.date === date);
+    const list = workout?.exercises || [];
+    let slot = key ? list.findIndex(e => (e?.id || e?.loggedAt) === key) : -1;
+    if (slot < 0 && !key && list[index]) slot = index;
+    editTarget = null;
+    if (slot < 0) {
+      $('#exerciseDialog').close();
+      toast('That exercise changed elsewhere. Reopen it to edit.');
+      render();
+      return;
+    }
+    list[slot] = mergeEditedExercise(list[slot], entry);
   } else {
-    targetWorkout
-      .exercises.push(
-        entry
-      );
+    const targetWorkout = activeWorkout();
+    if (targetWorkout.completed) {
+      $('#exerciseDialog').close();
+      toast('🏁 This adventure has ended. New moves can’t be added.');
+      return;
+    }
+    if (targetWorkout.transient) {
+      delete targetWorkout.transient;
+      targetWorkout.startedAt = loggedAt;
+      targetWorkout.startTimeExact = viewDate ? null : timeLabel(loggedAt);
+      state.workouts.push(targetWorkout);
+      draftWorkout = null;
+    }
+    targetWorkout.exercises.push(entry);
   }
 
-  const existing =
-    state.exerciseLibrary
-      .find(
-        e =>
-          e.name
-            .toLowerCase() ===
-          name.toLowerCase()
-      );
+  const existing = state.exerciseLibrary.find(e => e.name.trim().toLowerCase() === name.toLowerCase());
 
   if (!existing) {
-    state.exerciseLibrary.push({
-      id: slugify(name),
-      name,
-      type,
-      icon
-    });
+    state.exerciseLibrary.push({ id: slugify(name), name, type, icon });
 
-    toast(
-      `📖 ${name} learned by the Exercise Codex!`
-    );
+    toast(`📖 ${name} learned by the Exercise Codex!`);
   } else {
-    existing.type =
-      type;
+    existing.type = type;
 
-    existing.icon =
-      icon;
+    existing.icon = icon;
 
-    toast(
-      `⚔️ ${name} logged!`
-    );
+    toast(editing ? `✎ ${name} updated` : `⚔️ ${name} logged!`);
   }
 
-  $('#exerciseDialog')
-    .close();
+  $('#exerciseDialog').close();
 
   render();
 }
 
 function fillFood(food) {
-  $('#foodName').value =
-    food?.name || '';
+  $('#foodName').value = food?.name || '';
 
-  $('#foodServing')
-    .value =
-      food?.serving ||
-      '1 serving';
+  $('#foodServing').value = food?.serving || '1 serving';
 
-  $('#foodCalories')
-    .value =
-      Number.isFinite(
-        Number(
-          food?.calories
-        )
-      )
-        ? Number(
-            food.calories
-          ).toFixed(0)
-        : '';
+  $('#foodCalories').value = Number.isFinite(Number(food?.calories)) ? Number(food.calories).toFixed(0) : '';
 
-  $('#foodProtein')
-    .value =
-      food?.protein ?? '';
+  $('#foodProtein').value = food?.protein ?? '';
 
-  $('#foodCarbs')
-    .value =
-      food?.carbs ?? '';
+  $('#foodCarbs').value = food?.carbs ?? '';
 
-  $('#foodFat').value =
-    food?.fat ?? '';
+  $('#foodFat').value = food?.fat ?? '';
 
-  $('#foodHydration')
-    .value =
-      food?.hydrationOz ??
-      '';
+  $('#foodHydration').value = food?.hydrationOz ?? '';
 
-  $('#foodIcon').value =
-    food?.icon || '🍽️';
+  $('#foodIcon').value = food?.icon || '🍽️';
 
-  $('#foodSource').value =
-    food?.source || '';
+  $('#foodSource').value = food?.source || '';
 }
 
-function openFoodDialog(
-  food = null
-) {
-  fillFood(
-    food || {}
-  );
+function openFoodDialog(food = null) {
+  fillFood(food || {});
 
-  $('#onlineFoodResults')
-    .hidden = true;
+  $('#onlineFoodResults').hidden = true;
 
-  $('#onlineFoodResults')
-    .innerHTML = '';
+  $('#onlineFoodResults').innerHTML = '';
 
-  $('#foodDialog')
-    .showModal();
+  $('#foodDialog').showModal();
 }
 
 function saveFood(ev) {
   ev.preventDefault();
 
-  const name =
-    $('#foodName')
-      .value
-      .trim();
+  const name = $('#foodName').value.trim();
 
   if (!name) return;
 
-  const hydrationOz =
-    +$('#foodHydration')
-      .value || 0;
+  const hydrationOz = +$('#foodHydration').value || 0;
 
   const entry = {
-    id:
-      `food-${Date.now()}`,
+    id: `food-${Date.now()}`,
 
-    date:
-      activeWorkout().date,
+    date: activeDate(),
 
     name,
 
-    serving:
-      $('#foodServing')
-        .value
-        .trim(),
+    serving: $('#foodServing').value.trim(),
 
-    calories:
-      +$('#foodCalories')
-        .value || 0,
+    calories: +$('#foodCalories').value || 0,
 
-    protein:
-      +$('#foodProtein')
-        .value || 0,
+    protein: +$('#foodProtein').value || 0,
 
-    carbs:
-      +$('#foodCarbs')
-        .value || 0,
+    carbs: +$('#foodCarbs').value || 0,
 
-    fat:
-      +$('#foodFat')
-        .value || 0,
+    fat: +$('#foodFat').value || 0,
 
     hydrationOz,
 
-    icon:
-      $('#foodIcon')
-        .value
-        .trim() ||
-      '🍽️',
+    icon: $('#foodIcon').value.trim() || '🍽️',
 
-    source:
-      $('#foodSource')
-        .value ||
-      null
+    source: $('#foodSource').value || null
   };
 
-  entry.xp =
-    nutritionXP(entry);
+  entry.xp = nutritionXP(entry);
 
-  state.nutrition.push(
-    entry
-  );
+  state.nutrition.push(entry);
 
   if (hydrationOz) {
-    const c =
-      getCheckIn(
-        entry.date
-      );
+    const c = getCheckIn(entry.date);
 
-    upsertCheckIn(
-      {
-        waterOz:
-          Number(
-            c?.waterOz ||
-            0
-          ) +
-          hydrationOz
-      },
-      entry.date
-    );
+    upsertCheckIn({ waterOz: Number(c?.waterOz || 0) + hydrationOz }, entry.date);
   }
 
-  $('#foodDialog')
-    .close();
+  $('#foodDialog').close();
 
-  toast(
-    `🍎 Provisions logged · +${entry.xp} XP`
-  );
+  toast(`🍎 Provisions logged · +${entry.xp} XP`);
 
   render();
   window.dispatchEvent(new CustomEvent('fitquest:nutrition-updated'));
 }
 
 async function lookupFood() {
-  const term =
-    $('#foodName')
-      .value
-      .trim();
+  const term = $('#foodName').value.trim();
 
-  if (
-    term.length < 2
-  ) {
-    toast(
-      '🔎 Type at least 2 letters first'
-    );
+  if (term.length < 2) {
+    toast('🔎 Type at least 2 letters first');
 
     return;
   }
 
-  const btn =
-    $('#foodLookupBtn');
+  const btn = $('#foodLookupBtn');
 
-  const resultBox =
-    $('#onlineFoodResults');
+  const resultBox = $('#onlineFoodResults');
 
   btn.disabled = true;
 
-  btn.textContent =
-    'Searching…';
+  btn.textContent = 'Searching…';
 
-  resultBox.hidden =
-    false;
+  resultBox.hidden = false;
 
-  resultBox.innerHTML =
-    '<div class="search-status">Contacting Open Food Facts…</div>';
+  resultBox.innerHTML = '<div class="search-status">Contacting Open Food Facts…</div>';
 
   try {
-    const results =
-      await searchOpenFoodFacts(
-        term
-      );
+    const results = await searchOpenFoodFacts(term);
 
-    if (
-      !results.length
-    ) {
+    if (!results.length) {
       resultBox.innerHTML =
         '<div class="search-status">No matching products found. Try a brand or a more specific name.</div>';
 
       return;
     }
 
-    resultBox.innerHTML =
-      results
-        .map(
-          (f, i) => `
+    resultBox.innerHTML = results
+      .map(
+        (f, i) => `
             <button
               type="button"
               class="online-food-result"
@@ -1855,228 +998,121 @@ async function lookupFood() {
 
               <div>
                 <strong>
-                  ${escapeHtml(
-                    f.name
-                  )}
+                  ${escapeHtml(f.name)}
                 </strong>
 
                 <small>
-                  ${escapeHtml(
-                    f.brand ||
-                    'Open Food Facts'
-                  )}
-                  · ${escapeHtml(
-                    f.serving
-                  )}
+                  ${escapeHtml(f.brand || 'Open Food Facts')}
+                  · ${escapeHtml(f.serving)}
                 </small>
               </div>
 
               <b>
-                ${Math.round(
-                  f.calories ||
-                  0
-                )} cal
+                ${Math.round(f.calories || 0)} cal
               </b>
             </button>
           `
-        )
-        .join('');
+      )
+      .join('');
 
-    $$(
-      '[data-online-index]'
-    ).forEach(
-      el =>
-        el.addEventListener(
-          'click',
-          () => {
-            fillFood(
-              results[
-                +el.dataset
-                  .onlineIndex
-              ]
-            );
+    $$('[data-online-index]').forEach(el =>
+      el.addEventListener('click', () => {
+        fillFood(results[+el.dataset.onlineIndex]);
 
-            resultBox.hidden =
-              true;
+        resultBox.hidden = true;
 
-            toast(
-              '🔎 Nutrition data loaded — verify the serving size'
-            );
-          }
-        )
+        toast('🔎 Nutrition data loaded — verify the serving size');
+      })
     );
-
   } catch (err) {
     resultBox.innerHTML =
       '<div class="search-status error">Online lookup is unavailable right now. Built-in foods and manual entry still work.</div>';
 
     console.warn(err);
-
   } finally {
-    btn.disabled =
-      false;
+    btn.disabled = false;
 
-    btn.textContent =
-      '🔎 Search Online';
+    btn.textContent = '🔎 Search Online';
   }
 }
 
 function saveIdentity() {
-  const dob =
-    $('#profileDob')
-      .value;
+  const dob = $('#profileDob').value;
 
-  const parsed =
-    parseHeight(
-      $('#profileHeightText')
-        .value
-    );
+  const parsed = parseHeight($('#profileHeightText').value);
 
   if (!dob) {
-    toast(
-      '🎂 Add your date of birth first'
-    );
+    toast('🎂 Add your date of birth first');
 
     return;
   }
 
   if (!parsed) {
-    toast(
-      '📏 Try height like 5\'10", 70 in, or 178 cm'
-    );
+    toast('📏 Try height like 5\'10", 70 in, or 178 cm');
 
     return;
   }
 
-  state.profile
-    .dateOfBirth =
-      dob;
+  state.profile.dateOfBirth = dob;
 
-  Object.assign(
-    state.profile,
-    parsed
-  );
+  Object.assign(state.profile, parsed);
 
   delete state.profile.age;
   delete state.profile.height;
   delete state.profile.heightUnit;
 
-  $('#identityEditor')
-    .hidden = true;
+  $('#identityEditor').hidden = true;
 
-  toast(
-    '🧙 Identity stats locked into your dossier'
-  );
+  toast('🧙 Identity stats locked into your dossier');
 
   render();
 }
 
 function saveCheckIn() {
-  const hRaw =
-    $('#dailySleepHours')
-      .value;
+  const hRaw = $('#dailySleepHours').value;
 
-  const mRaw =
-    $('#dailySleepMinutes')
-      .value;
+  const mRaw = $('#dailySleepMinutes').value;
 
-  const hasSleep =
-    hRaw !== '' ||
-    mRaw !== '';
+  const hasSleep = hRaw !== '' || mRaw !== '';
 
-  const h =
-    Math.max(
-      0,
-      Math.min(
-        24,
-        parseInt(
-          hRaw || '0',
-          10
-        ) || 0
-      )
-    );
+  const h = Math.max(0, Math.min(24, parseInt(hRaw || '0', 10) || 0));
 
-  const m =
-    Math.max(
-      0,
-      Math.min(
-        59,
-        parseInt(
-          mRaw || '0',
-          10
-        ) || 0
-      )
-    );
+  const m = Math.max(0, Math.min(59, parseInt(mRaw || '0', 10) || 0));
 
-  const sleepMinutes =
-    hasSleep
-      ? h * 60 + m
-      : null;
+  const sleepMinutes = hasSleep ? h * 60 + m : null;
 
   const patch = {
-    weight:
-      +$('#dailyWeight')
-        .value ||
-      null,
+    weight: +$('#dailyWeight').value || null,
 
-    weightUnit:
-      $('#dailyWeightUnit')
-        .value,
+    weightUnit: $('#dailyWeightUnit').value,
 
     sleepMinutes,
 
-    sleepHours:
-      sleepMinutes == null
-        ? null
-        : Number(
-            (
-              sleepMinutes /
-              60
-            ).toFixed(2)
-          ),
+    sleepHours: sleepMinutes == null ? null : Number((sleepMinutes / 60).toFixed(2)),
 
-    waterOz:
-      +$('#dailyWater')
-        .value || 0
+    waterOz: +$('#dailyWater').value || 0
   };
 
-  upsertCheckIn(
-    patch
-  );
+  upsertCheckIn(patch);
 
-  toast(
-    '📡 Daily recovery intel saved'
-  );
+  toast('📡 Daily recovery intel saved');
 
-  ['#dailyWeight', '#dailyWeightUnit', '#dailySleepHours', '#dailySleepMinutes']
-    .forEach(selector => {
-      const input = $(selector);
-      if (input) delete input.dataset.dirty;
-    });
+  clearDirty(CHECK_IN_INPUTS);
 
   render();
   window.dispatchEvent(new CustomEvent('fitquest:checkin-saved'));
 }
 
 function addWater(amount) {
-  const next =
-    (
-      +$('#dailyWater')
-        .value ||
-      0
-    ) +
-    amount;
+  const next = (+$('#dailyWater').value || 0) + amount;
 
-  $('#dailyWater').value =
-    next;
+  $('#dailyWater').value = next;
 
-  upsertCheckIn({
-    waterOz: next
-  });
+  upsertCheckIn({ waterOz: next });
 
-  toast(
-    `💧 +${amount} oz water`
-  );
+  clearDirty(['#dailyWater']);
+
+  toast(`💧 +${amount} oz water`);
 
   render();
   window.dispatchEvent(new CustomEvent('fitquest:checkin-saved'));
@@ -2085,10 +1121,7 @@ function addWater(amount) {
 function createNewWorkout(ev) {
   ev.preventDefault();
 
-  const dateValue =
-    $('#newWorkoutDate')
-      .value ||
-    localDateISO();
+  const dateValue = $('#newWorkoutDate').value || localDateISO();
 
   if (dateValue > localDateISO()) {
     toast('📅 Adventures can’t be logged for future dates.');
@@ -2097,21 +1130,7 @@ function createNewWorkout(ev) {
 
   const day = weekdayName(dateValue);
 
-  const time =
-    $('#newWorkoutTime')
-      .value ||
-    new Date()
-      .toLocaleTimeString(
-        [],
-        {
-          hour: 'numeric',
-          minute: '2-digit'
-        }
-      );
-
-  const number =
-    state.workouts
-      .length + 1;
+  const time = $('#newWorkoutTime').value || timeLabel();
 
   const existingWorkout = state.workouts.find(workout => workout.date === dateValue);
   if (existingWorkout) {
@@ -2122,345 +1141,154 @@ function createNewWorkout(ev) {
   }
 
   state.workouts.push({
-    id:
-      `${dateValue}-day-${number}-${Date.now()}`,
+    id: `${dateValue}-day-${Date.now()}`,
 
-    date:
-      dateValue,
+    date: dateValue,
 
     day,
 
-    title:
-      `Day ${number}: ${
-        $('#newWorkoutTitle')
-          .value
-          .trim() ||
-        'A New Quest'
-      }`,
+    title: $('#newWorkoutTitle').value.trim() || 'A New Adventure',
 
     startTime: '',
 
-    startTimeExact:
-      time,
+    startTimeExact: time,
 
-    startedAt:
-      new Date().toISOString(),
+    startedAt: new Date().toISOString(),
 
-    note:
-      $('#newWorkoutNote')
-        .value
-        .trim() ||
-      'A new adventure begins.',
+    note: $('#newWorkoutNote').value.trim() || 'A new adventure begins.',
 
-    exercises: []
+    exercises: [],
+
+    // Kept as a record even before its first move.
+    planned: true
   });
 
-  $('#newWorkoutDialog')
-    .close();
+  $('#newWorkoutDialog').close();
 
-  toast(
-    '🗺️ New adventure started!'
-  );
+  toast('🗺️ New adventure started!');
 
   setViewDate(dateValue);
 
-  setTimeout(
-    () =>
-      $('#exerciseCodexSection')
-        ?.scrollIntoView({
-          behavior:
-            'smooth'
-        }),
-    150
-  );
-}
+  // The codex lives on the Training screen, which is hidden unless active.
+  $('[data-fitquest-nav="training"]')?.click();
 
+  setTimeout(() => $('#exerciseCodexSection')?.scrollIntoView({ behavior: 'smooth' }), 150);
+}
 
 function bindAppEvents() {
-  $('#addExerciseBtn')
-    .addEventListener(
-      'click',
-      () =>
-        openExerciseDialog()
-    );
+  $('#addExerciseBtn').addEventListener('click', () => openExerciseDialog());
 
-  $('#exerciseType')
-    .addEventListener(
-      'change',
-      updateExerciseFields
-    );
+  $('#exerciseType').addEventListener('change', updateExerciseFields);
 
-  $('#exerciseForm')
-    .addEventListener(
-      'submit',
-      saveExercise
-    );
+  $('#exerciseForm').addEventListener('submit', saveExercise);
 
-  $('#editIdentityBtn')
-    .addEventListener(
-      'click',
-      () => {
-        $('#identityEditor')
-          .hidden =
-            !$('#identityEditor')
-              .hidden;
-      }
-    );
+  $('#editIdentityBtn').addEventListener('click', () => {
+    $('#identityEditor').hidden = !$('#identityEditor').hidden;
+  });
 
-  $('#saveIdentityBtn')
-    .addEventListener(
-      'click',
-      saveIdentity
-    );
+  $('#saveIdentityBtn').addEventListener('click', saveIdentity);
 
-  $('#saveCheckInBtn')
-    .addEventListener(
-      'click',
-      saveCheckIn
-    );
+  $('#saveCheckInBtn').addEventListener('click', saveCheckIn);
 
-  $$(
-    '[data-water-add]'
-  ).forEach(
-    b =>
-      b.addEventListener(
-        'click',
-        () =>
-          addWater(
-            +b.dataset
-              .waterAdd
-          )
-      )
+  $$('[data-water-add]').forEach(b => b.addEventListener('click', () => addWater(+b.dataset.waterAdd)));
+
+  $('#addFoodBtn').addEventListener('click', () => openFoodDialog());
+
+  $('#foodForm').addEventListener('submit', saveFood);
+
+  $('#foodLookupBtn').addEventListener('click', lookupFood);
+
+  $('#foodName').addEventListener('change', () => {
+    const match = findQuickFood($('#foodName').value);
+
+    if (match) {
+      fillFood(match);
+    }
+  });
+
+  $('#quickFoods').innerHTML = quickFoods
+    .slice(0, 18)
+    .map((f, i) => `<button class="food-chip" data-food-index="${i}">${f.icon} ${f.name}</button>`)
+    .join('');
+
+  $$('[data-food-index]').forEach(btn =>
+    btn.addEventListener('click', () => openFoodDialog(quickFoods[+btn.dataset.foodIndex]))
   );
 
-  $('#addFoodBtn')
-    .addEventListener(
-      'click',
-      () =>
-        openFoodDialog()
-    );
+  $('#foodSuggestions').innerHTML = quickFoods
+    .map(f => `<option value="${escapeHtml(f.name)}"></option>`)
+    .join('');
 
-  $('#foodForm')
-    .addEventListener(
-      'submit',
-      saveFood
-    );
+  $('#newWorkoutBtn').addEventListener('click', () => {
+    const now = new Date();
 
-  $('#foodLookupBtn')
-    .addEventListener(
-      'click',
-      lookupFood
-    );
+    $('#newWorkoutDate').value = localDateISO(now);
 
-  $('#foodName')
-    .addEventListener(
-      'change',
-      () => {
-        const match =
-          findQuickFood(
-            $('#foodName')
-              .value
-          );
+    // Adventures can be backfilled, but not scheduled in the future.
+    $('#newWorkoutDate').max = localDateISO(now);
 
-        if (match) {
-          fillFood(
-            match
-          );
-        }
-      }
-    );
+    $('#newWorkoutTime').value = timeLabel(now);
 
-  $('#quickFoods')
-    .innerHTML =
-      quickFoods
-        .slice(0, 18)
-        .map(
-          (f, i) =>
-            `<button class="food-chip" data-food-index="${i}">${f.icon} ${f.name}</button>`
-        )
-        .join('');
+    $('#newWorkoutTitle').value = '';
 
-  $$(
-    '[data-food-index]'
-  ).forEach(
-    btn =>
-      btn.addEventListener(
-        'click',
-        () =>
-          openFoodDialog(
-            quickFoods[
-              +btn.dataset
-                .foodIndex
-            ]
-          )
-      )
-  );
+    $('#newWorkoutNote').value = '';
 
-  $('#foodSuggestions')
-    .innerHTML =
-      quickFoods
-        .map(
-          f =>
-            `<option value="${escapeHtml(
-              f.name
-            )}"></option>`
-        )
-        .join('');
+    $('#newWorkoutDialog').showModal();
+  });
 
-  $('#newWorkoutBtn')
-    .addEventListener(
-      'click',
-      () => {
-        const now =
-          new Date();
+  $('#newWorkoutForm').addEventListener('submit', createNewWorkout);
 
-        $('#newWorkoutDate')
-          .value =
-            localDateISO(
-              now
-            );
+  // One listener closes every dialog, including ones other modules add later.
+  document.addEventListener('click', ev => {
+    const closeBtn = ev.target.closest?.('.dialog-close');
+    if (closeBtn) {
+      closeBtn.closest('dialog')?.close();
+      return;
+    }
+    if (ev.target instanceof HTMLDialogElement) ev.target.close();
+  });
 
-        // Adventures can be backfilled, but not scheduled in the future.
-        $('#newWorkoutDate').max = localDateISO(now);
+  $('#exerciseDialog').addEventListener('close', () => {
+    editTarget = null;
+  });
 
-        $('#newWorkoutTime')
-          .value =
-            now.toLocaleTimeString(
-              [],
-              {
-                hour:
-                  'numeric',
-                minute:
-                  '2-digit'
-              }
-            );
+  $('#classifiedBtn').addEventListener('click', () => {
+    const m = $('#classifiedMessage');
 
-        $('#newWorkoutTitle')
-          .value = '';
+    m.hidden = !m.hidden;
 
-        $('#newWorkoutNote')
-          .value = '';
+    toast(m.hidden ? '📡 Field channel closed' : '📡 Encrypted field note decoded');
+  });
 
-        $('#newWorkoutDialog')
-          .showModal();
-      }
-    );
+  $('#levelChip').addEventListener('click', () => {
+    titleTapCount++;
 
-  $('#newWorkoutForm')
-    .addEventListener(
-      'submit',
-      createNewWorkout
-    );
+    if (titleTapCount >= 5) {
+      titleTapCount = 0;
 
-  $$(
-    '.dialog-close'
-  ).forEach(
-    btn =>
-      btn.addEventListener(
-        'click',
-        () => {
-          const id =
-            btn.dataset
-              .closeDialog;
+      state.ui.stealthMode = !state.ui.stealthMode;
 
-          const dialog =
-            id
-              ? document
-                  .getElementById(
-                    id
-                  )
-              : btn.closest(
-                  'dialog'
-                );
+      toast(
+        state.ui.stealthMode
+          ? '❗ Stealth Interface engaged. Keep a low profile.'
+          : '📡 Standard interface restored.'
+      );
 
-          dialog?.close();
-        }
-      )
-  );
-
-  $$('dialog')
-    .forEach(
-      dialog =>
-        dialog.addEventListener(
-          'click',
-          ev => {
-            if (
-              ev.target ===
-              dialog
-            ) {
-              dialog.close();
-            }
-          }
-        )
-    );
-
-  $('#classifiedBtn')
-    .addEventListener(
-      'click',
-      () => {
-        const m =
-          $('#classifiedMessage');
-
-        m.hidden =
-          !m.hidden;
-
-        toast(
-          m.hidden
-            ? '📡 Field channel closed'
-            : '📡 Encrypted field note decoded'
-        );
-      }
-    );
-
-  $('#levelChip')
-    .addEventListener(
-      'click',
-      () => {
-        titleTapCount++;
-
-        if (
-          titleTapCount >=
-          5
-        ) {
-          titleTapCount =
-            0;
-
-          state.ui
-            .stealthMode =
-              !state.ui
-                .stealthMode;
-
-          toast(
-            state.ui
-              .stealthMode
-              ? '❗ Stealth Interface engaged. Keep a low profile.'
-              : '📡 Standard interface restored.'
-          );
-
-          render();
-        }
-      }
-    );
+      render();
+    }
+  });
 }
 
-export async function startFitQuest() {
-  if (appStarted) {
-    return true;
-  }
-
-  state =
-    await loadSave(
-      seedData
-    );
+async function start() {
+  state = loadSave(seedData);
 
   bindAppEvents();
 
-  ['#dailyWeight', '#dailyWeightUnit', '#dailySleepHours', '#dailySleepMinutes']
-    .forEach(selector =>
-      $(selector)?.addEventListener('input', event => {
-        event.target.dataset.dirty = 'true';
-      })
-    );
+  CHECK_IN_INPUTS.forEach(selector =>
+    $(selector)?.addEventListener('input', event => {
+      event.target.dataset.dirty = 'true';
+    })
+  );
 
   window.addEventListener('fitquest:saved', event => {
     if (event.detail?.source !== 'app') void reloadState();
@@ -2471,17 +1299,21 @@ export async function startFitQuest() {
     setViewDate(event.detail?.date);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
-  document.documentElement.dataset.activeDate = activeDate();
+  // A page left open overnight moves on to the new day when it is shown again.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && localDateISO() !== renderedToday) setViewDate(viewDate);
+  });
+  document.documentElement.dataset.activeDate = viewDate || '';
 
-  appStarted = true;
-
-  render();
-
-  const appRoot = $('#appRoot');
-  if (appRoot) appRoot.hidden = false;
-
-  return true;
+  try {
+    render();
+  } catch (error) {
+    console.error('Render failed:', error);
+    toast('⚠️ Some saved data could not be shown.', { tone: 'warn' });
+  } finally {
+    const appRoot = $('#appRoot');
+    if (appRoot) appRoot.hidden = false;
+  }
 }
 
-void startFitQuest();
-
+void start();

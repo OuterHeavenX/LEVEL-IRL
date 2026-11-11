@@ -1,7 +1,7 @@
 import { seedData } from './data/defaultData.js';
 import { loadSave, writeSave } from './lib/storage.js';
-import { calculateStats } from './lib/progression.js';
-import { $, localDateISO, injectStyles, appVisible, whenReady } from './lib/dom.js';
+import { exerciseTotals } from './lib/progression.js';
+import { $, activeDateISO, timeLabel, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 let busy = false;
@@ -9,8 +9,6 @@ let busy = false;
 function styles() {
   injectStyles('fitquestCompletionStyles', `
     .fitquest-adventure-actions {
-      display: flex;
-      gap: 9px;
       align-items: stretch;
       min-width: 0;
     }
@@ -45,7 +43,6 @@ function styles() {
     }
 
     .finish-adventure-btn.adventure-ended {
-      min-width: 200px;
       border-color: rgba(105,232,177,.28);
       background: rgba(105,232,177,.09);
       color: #78eab7;
@@ -61,60 +58,11 @@ function styles() {
       font-size: 13px;
       line-height: 1.45;
     }
-
-    @media (max-width: 700px) {
-      .quest-card .section-heading {
-        display: grid !important;
-        grid-template-columns: minmax(0,1fr) auto;
-        align-items: start !important;
-        gap: 12px !important;
-      }
-
-      .quest-card .section-heading > div:first-child {
-        min-width: 0;
-      }
-
-      .quest-card #addExerciseBtn {
-        grid-column: 2;
-        grid-row: 1;
-        align-self: start;
-        margin: 0 !important;
-      }
-
-      .quest-card .fitquest-adventure-actions {
-        grid-column: 1 / -1;
-        grid-row: 2;
-        display: grid;
-        grid-template-columns: repeat(2,minmax(0,1fr));
-        width: 100%;
-        gap: 8px;
-      }
-
-      .quest-card .finish-adventure-btn,
-      .quest-card .end-adventure-btn {
-        width: 100%;
-        min-width: 0;
-        min-height: 48px;
-        padding: 8px 10px;
-        white-space: normal;
-        line-height: 1.2;
-        font-size: 12px;
-      }
-
-      .quest-card .fitquest-adventure-actions.ended {
-        grid-template-columns: 1fr;
-      }
-
-      .quest-card .fitquest-adventure-actions.ended .finish-adventure-btn {
-        min-width: 0;
-      }
-    }
   `);
 }
 
-// The day the app is showing (set by app.js), defaulting to today.
 function currentWorkout(data) {
-  const date = document.documentElement.dataset.activeDate || localDateISO();
+  const date = activeDateISO();
   return (data.workouts || []).find(w => w.date === date) || null;
 }
 
@@ -132,13 +80,7 @@ function pendingCount(workout) {
 
 function getWorkoutBonus(workout) {
   const exercises = Array.isArray(workout?.exercises) ? workout.exercises : [];
-  const sets = exercises
-    .filter(e => e.type === 'strength')
-    .reduce((n,e) => n + (Number(e.sets)||0), 0);
-
-  const cardio = exercises
-    .filter(e => e.type === 'cardio')
-    .reduce((n,e) => n + (Number(e.duration)||0), 0);
+  const { strengthSets: sets, cardio } = exerciseTotals(exercises);
 
   return Math.max(
     50,
@@ -169,7 +111,7 @@ function setState(workout) {
   strike.classList.toggle('adventure-ended', Boolean(workout?.completed));
 
   if (workout?.completed) {
-    // Legacy completed Adventures may still contain unsubmitted moves.
+    // A completed Adventure can still hold unsubmitted moves (older saves, or moves moved or merged in from History).
     if (pending > 0) {
       strike.hidden = false;
       strike.disabled = false;
@@ -190,7 +132,7 @@ function setState(workout) {
 
   strike.disabled = pending <= 0;
   strike.textContent = pending > 0
-    ? `⚔️ Submit Strike · ${pending} new ${pending === 1 ? 'move' : 'moves'}`
+    ? `⚔️ Strike Boss · ${pending} new ${pending === 1 ? 'move' : 'moves'}`
     : total > 0
       ? '⚔️ All Moves Submitted'
       : '⚔️ Log a Move First';
@@ -214,15 +156,10 @@ function note(workout) {
   const pending = pendingCount(workout);
 
   if (workout.completed) {
-    const time = workout.completedAt
-      ? new Date(workout.completedAt).toLocaleTimeString([], {
-          hour: 'numeric',
-          minute: '2-digit'
-        })
-      : '';
+    const time = workout.completedAt ? timeLabel(workout.completedAt) : '';
 
     el.textContent = pending > 0
-      ? `⚔️ Adventure ended${time ? ` at ${time}` : ''}, but ${pending} legacy ${pending === 1 ? 'move still needs' : 'moves still need'} one final boss strike.`
+      ? `⚔️ Adventure ended${time ? ` at ${time}` : ''}, but ${pending} ${pending === 1 ? 'move still needs' : 'moves still need'} one final boss strike.`
       : `✓ Adventure ended${time ? ` at ${time}` : ''} · +${Number(workout.completionXp) || 0} completion XP`;
   } else {
     el.textContent = pending > 0
@@ -249,7 +186,7 @@ async function submitStrike() {
 
     await new Promise(resolve => setTimeout(resolve, 400));
 
-    const data = await loadSave(seedData);
+    const data = loadSave(seedData);
     const workout = currentWorkout(data);
     const pending = pendingCount(workout);
 
@@ -260,13 +197,9 @@ async function submitStrike() {
     workout.bossStrikeRequestedCount = exerciseCount(workout);
     workout.bossStrikeRequestedAt = new Date().toISOString();
 
-    const ok = await writeSave(data);
-    if (!ok) throw new Error('LEVEL IRL could not save this strike.');
-
-    window.dispatchEvent(new CustomEvent('fitquest:boss-strike-requested'));
+    if (!writeSave(data)) throw new Error('LEVEL IRL could not save this strike.');
 
     await new Promise(resolve => setTimeout(resolve, 500));
-    await sync();
 
   } catch (error) {
     window.alert(error?.message || 'Unable to submit strike.');
@@ -290,7 +223,7 @@ async function endAdventure() {
 
     await new Promise(resolve => setTimeout(resolve, 400));
 
-    const data = await loadSave(seedData);
+    const data = loadSave(seedData);
     const workout = currentWorkout(data);
 
     if (!workout || exerciseCount(workout) === 0) {
@@ -305,29 +238,15 @@ async function endAdventure() {
       workout.bossStrikeRequestedAt = new Date().toISOString();
     }
 
-    const oldStats = calculateStats(data);
-
     workout.completed = true;
     workout.completedAt = new Date().toISOString();
     workout.completionXp = getWorkoutBonus(workout);
-    workout.completionSummary =
-      `${exerciseCount(workout)} moves completed · +${workout.completionXp} completion XP`;
 
-    const ok = await writeSave(data);
-    if (!ok) throw new Error('LEVEL IRL could not end this Adventure.');
+    if (!writeSave(data)) throw new Error('LEVEL IRL could not end this Adventure.');
 
-    const newStats = calculateStats(data);
-
-    window.dispatchEvent(new CustomEvent('fitquest:boss-strike-requested'));
-    window.dispatchEvent(new CustomEvent('fitquest:adventure-ended', {
-      detail: {
-        oldLevel: oldStats.level,
-        newLevel: newStats.level
-      }
-    }));
+    window.dispatchEvent(new CustomEvent('fitquest:adventure-ended'));
 
     await new Promise(resolve => setTimeout(resolve, 550));
-    await sync();
 
   } catch (error) {
     window.alert(error?.message || 'Unable to end Adventure.');
@@ -353,7 +272,7 @@ function inject() {
   strike.id = 'finishAdventureBtn';
   strike.type = 'button';
   strike.className = 'finish-adventure-btn';
-  strike.textContent = '⚔️ Submit Strike';
+  strike.textContent = '⚔️ Strike Boss';
 
   const end = document.createElement('button');
   end.id = 'endAdventureBtn';
@@ -372,7 +291,7 @@ function inject() {
 
 async function sync() {
   try {
-    const data = await loadSave(seedData);
+    const data = loadSave(seedData);
     const workout = currentWorkout(data);
     setState(workout);
     note(workout);
@@ -405,8 +324,4 @@ function boot() {
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
-}
+boot();

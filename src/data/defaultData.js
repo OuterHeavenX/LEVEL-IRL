@@ -1,10 +1,7 @@
 export const seedData = {
   version: 4,
   profile: {
-    name: 'Adventurer',
     goal: 'Slim & Tone',
-    level: 1,
-    nextLevelXp: 500,
     dateOfBirth: null,
     heightDisplay: null,
     heightInches: null,
