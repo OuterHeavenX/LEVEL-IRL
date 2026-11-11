@@ -1,4 +1,4 @@
-import { readCloudSave } from './lib/storage.js';
+import { readSave } from './lib/storage.js';
 
 const $ = selector => document.querySelector(selector);
 
@@ -913,7 +913,7 @@ async function refresh() {
   busy = true;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
     if (!data) return;
 

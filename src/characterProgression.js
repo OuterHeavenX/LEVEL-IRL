@@ -1,4 +1,4 @@
-import { readCloudSave, writeSave } from './lib/storage.js';
+import { readSave, writeSave } from './lib/storage.js';
 import { calculateStats } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
 
@@ -934,11 +934,11 @@ async function saveCharacterSetting(key, value) {
   busy = true;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
 
     if (!data) {
-      throw new Error('No cloud save is available.');
+      throw new Error('No save is available.');
     }
 
     data.ui ||= {};
@@ -956,7 +956,7 @@ async function saveCharacterSetting(key, value) {
       throw new Error('Unable to save character progression.');
     }
 
-    await renderFromCloud();
+    await renderFromSave();
 
     window.dispatchEvent(
       new CustomEvent('fitquest:character-updated')
@@ -1252,7 +1252,7 @@ function render(data) {
     button.addEventListener('click', () => {
       activeTab = button.dataset.characterTab || 'classes';
 
-      // Presentation-only tab switch: no cloud write.
+      // Presentation-only tab switch: no save write.
       render(data);
     });
   });
@@ -1278,7 +1278,7 @@ function render(data) {
   $('#fqRewardsToggle')?.addEventListener('click', () => {
     rewardsExpanded = !rewardsExpanded;
 
-    // Presentation-only expansion: no cloud write.
+    // Presentation-only expansion: no save write.
     render(data);
   });
 
@@ -1306,9 +1306,9 @@ function render(data) {
   }, 350);
 }
 
-async function renderFromCloud() {
+async function renderFromSave() {
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
 
     if (cloud?.save) {
       render(cloud.save);
@@ -1331,7 +1331,7 @@ function boot() {
 
     if ($('#fitquestScreenGrid-character')) {
       clearInterval(timer);
-      void renderFromCloud();
+      void renderFromSave();
     } else if (attempts > 140) {
       clearInterval(timer);
     }
@@ -1351,13 +1351,13 @@ function boot() {
 
   refreshEvents.forEach(eventName => {
     window.addEventListener(eventName, () => {
-      void renderFromCloud();
+      void renderFromSave();
     });
   });
 
   window.addEventListener('fitquest:navigation', event => {
     if (event.detail?.screen === 'character') {
-      void renderFromCloud();
+      void renderFromSave();
     }
   });
 }

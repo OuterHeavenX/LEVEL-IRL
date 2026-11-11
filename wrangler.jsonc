@@ -6,13 +6,5 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS"
-  },
-
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "fitquest-db",
-      "database_id": "7aaaac5c-4f99-4d58-bafc-16c2dc4d75f0"
-    }
-  ]
+  }
 }

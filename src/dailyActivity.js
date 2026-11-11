@@ -1,4 +1,4 @@
-import { readCloudSave, writeSave } from './lib/storage.js';
+import { readSave, writeSave } from './lib/storage.js';
 
 const $ = selector => document.querySelector(selector);
 
@@ -421,8 +421,7 @@ function install() {
 
     <div class="fitquest-watch-note">
       ⌚ Enter the totals shown by Apple Watch / Fitness at the end of the day.
-      LEVEL IRL stores them in the same dated cloud check-in used by your recovery data,
-      so they follow your account across devices.
+      LEVEL IRL stores them in the same dated check-in used by your recovery data.
     </div>
   `;
 
@@ -486,7 +485,7 @@ async function render() {
   if (!install()) return;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
     if (!data) return;
 
@@ -546,15 +545,15 @@ async function save() {
 
   if (message) {
     message.className = 'fitquest-activity-message';
-    message.textContent = 'Saving to your LEVEL IRL cloud campaign…';
+    message.textContent = 'Saving your LEVEL IRL campaign…';
   }
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
 
     if (!data) {
-      throw new Error('No LEVEL IRL cloud save is available.');
+      throw new Error('No LEVEL IRL save is available.');
     }
 
     const today = localDateISO();
@@ -583,7 +582,7 @@ async function save() {
       message.className = 'fitquest-activity-message success';
       message.textContent = unlocked.length
         ? `Saved. Achievement unlocked: ${unlocked.map(item => `${item.icon} ${item.name}`).join(', ')}`
-        : 'Daily activity saved to the cloud.';
+        : 'Daily activity saved.';
     }
 
     await render();

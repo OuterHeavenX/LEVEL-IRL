@@ -24,7 +24,7 @@ import {
 let state = null;
 let titleTapCount = 0;
 let appStarted = false;
-let cloudSaveTimer = null;
+let saveTimer = null;
 let todayDraft = null;
 
 const exerciseIcon = (name, type = 'strength', fallback = '') => {
@@ -66,12 +66,12 @@ const escapeHtml = value =>
     })[c]
   );
 
-function scheduleCloudSave() {
+function scheduleSave() {
   if (!state) return;
 
-  clearTimeout(cloudSaveTimer);
+  clearTimeout(saveTimer);
 
-  cloudSaveTimer = setTimeout(() => {
+  saveTimer = setTimeout(() => {
     void writeSave(state);
   }, 750);
 }
@@ -462,7 +462,7 @@ function render() {
     achievements
   );
 
-  scheduleCloudSave();
+  scheduleSave();
 }
 
 function renderWorkout(workout) {
@@ -2503,47 +2503,9 @@ function bindAppEvents() {
     );
 }
 
-async function sessionIsValid() {
-  try {
-    const response =
-      await fetch(
-        '/api/auth/me',
-        {
-          method: 'GET',
-          credentials:
-            'same-origin',
-          cache:
-            'no-store'
-        }
-      );
-
-    if (!response.ok) {
-      return false;
-    }
-
-    const result =
-      await response.json();
-
-    return Boolean(
-      result.ok &&
-      result.authenticated
-    );
-
-  } catch {
-    return false;
-  }
-}
-
 export async function startFitQuest() {
   if (appStarted) {
     return true;
-  }
-
-  const authenticated =
-    await sessionIsValid();
-
-  if (!authenticated) {
-    return false;
   }
 
   state =
@@ -2557,12 +2519,8 @@ export async function startFitQuest() {
 
   render();
 
-  if (
-    typeof window.enterApp ===
-    'function'
-  ) {
-    window.enterApp();
-  }
+  const appRoot = $('#appRoot');
+  if (appRoot) appRoot.hidden = false;
 
   return true;
 }

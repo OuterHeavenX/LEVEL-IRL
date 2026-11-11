@@ -1,6 +1,6 @@
 import './navigation.js';
 import './dailyActivity.js';
-import { readCloudSave, writeSave } from './lib/storage.js';
+import { readSave, writeSave } from './lib/storage.js';
 import { workoutBattlePower } from './lib/progression.js';
 
 const $ = selector => document.querySelector(selector);
@@ -480,9 +480,9 @@ async function requestWorkoutStrike() {
   strikeBusy = true;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
-    if (!data) throw new Error('No cloud save is available.');
+    if (!data) throw new Error('No save is available.');
 
     const ready = readyDamage(data);
     const workout = ready.workout;
@@ -516,9 +516,9 @@ async function requestActivityStrike() {
   strikeBusy = true;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
-    if (!data) throw new Error('No cloud save is available.');
+    if (!data) throw new Error('No save is available.');
 
     const ready = readyDamage(data);
     const checkIn = ready.checkIn;
@@ -712,7 +712,7 @@ async function refresh() {
   busy = true;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
     if (!data) return;
 
