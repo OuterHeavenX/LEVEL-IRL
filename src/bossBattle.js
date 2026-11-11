@@ -1,9 +1,9 @@
 import './navigation.js';
 import './dailyActivity.js';
 import { readSave, writeSave } from './lib/storage.js';
-import { workoutBattlePower } from './lib/progression.js';
+import { workoutBattlePower, completedStreakAsOf } from './lib/progression.js';
+import { $, localDateISO } from './lib/dom.js';
 
-const $ = selector => document.querySelector(selector);
 
 const BOSSES = [
   { id:'iron-warden-v1', name:'The Iron Warden', title:'Gatekeeper of the First Forge', icon:'🛡️', maxHp:600, rewardXp:100, loot:{ id:'iron-warden-sigil', name:'Sigil of the First Forge', icon:'🔱', rarity:'Rare', description:'Proof that the First Forge has fallen.' } },
@@ -17,9 +17,6 @@ let BOSS = BOSSES[0];
 let busy = false;
 let strikeBusy = false;
 
-function localDateISO(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
 
 function styles() {
   if ($('#fitquestBossStyles')) return;
@@ -233,28 +230,6 @@ function ensureBoss(data) {
   return boss;
 }
 
-function streakFor(data, date) {
-  const dates = [...new Set(
-    (data.workouts || [])
-      .filter(w => w.completed && w.date && w.date <= date)
-      .map(w => w.date)
-  )].sort();
-
-  if (!dates.length) return 0;
-
-  let streak = 1;
-
-  for (let i = dates.length - 1; i > 0; i--) {
-    const a = new Date(`${dates[i]}T12:00:00`);
-    const b = new Date(`${dates[i - 1]}T12:00:00`);
-
-    if (Math.round((a - b) / 86400000) === 1) streak++;
-    else break;
-  }
-
-  return streak;
-}
-
 function sliceDamage(exercises = [], streak = 0) {
   return workoutBattlePower(exercises, streak);
 }
@@ -342,7 +317,7 @@ function applyPending(data) {
     if (requested <= submitted) continue;
 
     const chunk = exercises.slice(submitted, requested);
-    const damage = sliceDamage(chunk, streakFor(data, workout.date));
+    const damage = sliceDamage(chunk, completedStreakAsOf(data, workout.date));
     const at =
       workout.bossStrikeRequestedAt ||
       workout.completedAt ||
@@ -449,7 +424,7 @@ function readyDamage(data) {
   const move =
     sliceDamage(
       exercises.slice(submitted),
-      streakFor(data, today)
+      completedStreakAsOf(data, today)
     );
 
   const checkIn =
@@ -480,8 +455,7 @@ async function requestWorkoutStrike() {
   strikeBusy = true;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
     if (!data) throw new Error('No save is available.');
 
     const ready = readyDamage(data);
@@ -516,8 +490,7 @@ async function requestActivityStrike() {
   strikeBusy = true;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
     if (!data) throw new Error('No save is available.');
 
     const ready = readyDamage(data);
@@ -557,6 +530,8 @@ function wireStrikeButtons() {
   );
 }
 
+let lastCardHtml = '';
+
 function render(data) {
   const grid = $('.stats-grid');
   if (!grid) return;
@@ -564,6 +539,7 @@ function render(data) {
   let card = $('#fitquestBossBattle');
 
   if (!card) {
+    lastCardHtml = '';
     card = document.createElement('section');
     card.id = 'fitquestBossBattle';
     card.className = 'fitquest-boss-card';
@@ -603,7 +579,7 @@ function render(data) {
       item => item.id === BOSS.loot.id
     );
 
-  card.innerHTML = `
+  const html = `
     <div class="fitquest-boss-head">
       <div class="fitquest-boss-heading">
         <div class="fitquest-boss-icon">${BOSS.icon}</div>
@@ -704,6 +680,10 @@ function render(data) {
     </div>
   `;
 
+  // Only rebuild when something changed, so clicks aren't lost mid-render.
+  if (html === lastCardHtml) return;
+  lastCardHtml = html;
+  card.innerHTML = html;
   wireStrikeButtons();
 }
 
@@ -712,8 +692,7 @@ async function refresh() {
   busy = true;
 
   try {
-    const cloud = await readSave();
-    const data = cloud?.save;
+    const data = (await readSave())?.save;
     if (!data) return;
 
     const result = applyPending(data);
@@ -770,7 +749,8 @@ function boot() {
 
   [
     'fitquest:boss-strike-requested',
-    'fitquest:remote-update'
+    'fitquest:remote-update',
+    'fitquest:saved'
   ].forEach(name => {
     window.addEventListener(
       name,
@@ -786,8 +766,6 @@ function boot() {
       }
     }
   );
-
-  setInterval(() => void refresh(), 5000);
 }
 
 if (document.readyState === 'loading') {

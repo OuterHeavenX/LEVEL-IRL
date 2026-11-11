@@ -2,6 +2,8 @@ import './styles.css';
 import { seedData } from './data/defaultData.js';
 import {
   loadSave,
+  readSave,
+  mergeSave,
   writeSave,
   slugify,
   dedupeLibrary
@@ -20,11 +22,12 @@ import {
   achievementSummary,
   sketchSVG
 } from './lib/achievements.js';
+import { $, $$, escapeHtml, localDateISO, weekdayName, toast } from './lib/dom.js';
 
 let state = null;
 let titleTapCount = 0;
 let appStarted = false;
-let saveTimer = null;
+let suppressSave = false;
 let todayDraft = null;
 
 const exerciseIcon = (name, type = 'strength', fallback = '') => {
@@ -41,39 +44,25 @@ const exerciseIcon = (name, type = 'strength', fallback = '') => {
   return icons.find(([pattern]) => pattern.test(value))?.[1] || (type === 'cardio' ? '❤️' : '🏋️');
 };
 
-const $ = selector =>
-  document.querySelector(selector);
 
-const $$ = selector =>
-  [...document.querySelectorAll(selector)];
+// Save right away so other modules never read (and then overwrite) stale data.
+function saveState() {
+  if (!state || suppressSave) return;
+  void writeSave(state, { source: 'app' });
+}
 
-const localDateISO = (d = new Date()) =>
-  `${d.getFullYear()}-${String(
-    d.getMonth() + 1
-  ).padStart(2, '0')}-${String(
-    d.getDate()
-  ).padStart(2, '0')}`;
+// Another module or tab saved: adopt its copy so the next save doesn't undo it.
+async function reloadState() {
+  const stored = (await readSave())?.save;
+  if (!stored) return;
+  state = mergeSave(stored, seedData);
+  suppressSave = true;
+  try { render(); } finally { suppressSave = false; }
+}
 
-const escapeHtml = value =>
-  String(value ?? '').replace(
-    /[&<>'"]/g,
-    c => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      "'": '&#39;',
-      '"': '&quot;'
-    })[c]
-  );
-
-function scheduleSave() {
-  if (!state) return;
-
-  clearTimeout(saveTimer);
-
-  saveTimer = setTimeout(() => {
-    void writeSave(state);
-  }, 750);
+// Don't clobber a value the player is typing when the screen re-renders.
+function setInputValue(input, value) {
+  if (input && input.dataset.dirty !== 'true') input.value = value;
 }
 
 function todaysWorkout() {
@@ -85,14 +74,7 @@ function todaysWorkout() {
     );
 
   if (!workout) {
-    const local =
-      new Date(`${today}T12:00:00`);
-
-    const day =
-      new Intl.DateTimeFormat(
-        'en-US',
-        { weekday: 'long' }
-      ).format(local);
+    const day = weekdayName(today);
 
     const number =
       state.workouts.length + 1;
@@ -181,6 +163,13 @@ function calculateAge(dob) {
     : null;
 }
 
+// Split total inches into feet and inches, rounding first so 71.97" never shows as 5'12".
+function feetAndInches(totalInches) {
+  const rounded = Math.round(totalInches * 10) / 10;
+  const feet = Math.floor(rounded / 12);
+  return { feet, inches: +(rounded - feet * 12).toFixed(1) };
+}
+
 function parseHeight(text) {
   const raw =
     String(text || '')
@@ -250,16 +239,8 @@ function parseHeight(text) {
       return null;
     }
 
-    const feet =
-      Math.floor(
-        total / 12
-      );
-
-    const inches =
-      +(
-        total -
-        feet * 12
-      ).toFixed(1);
+    const { feet, inches } =
+      feetAndInches(total);
 
     return {
       heightDisplay:
@@ -293,16 +274,8 @@ function parseHeight(text) {
     const total =
       cm / 2.54;
 
-    const feet =
-      Math.floor(
-        total / 12
-      );
-
-    const inches =
-      +(
-        total -
-        feet * 12
-      ).toFixed(1);
+    const { feet, inches } =
+      feetAndInches(total);
 
     return {
       heightDisplay:
@@ -462,7 +435,7 @@ function render() {
     achievements
   );
 
-  scheduleSave();
+  saveState();
 }
 
 function renderWorkout(workout) {
@@ -483,10 +456,10 @@ function renderWorkout(workout) {
                   ) % 1
                     ? 2
                     : 0
-                )} ${
+                )} ${escapeHtml(
                   e.distanceUnit ||
                   'mi'
-                }`
+                )}`
               : '';
 
           return `
@@ -715,13 +688,15 @@ function renderCheckIn() {
           ''
         );
 
-  $('#dailyWeight').value =
-    c?.weight ?? '';
+  setInputValue(
+    $('#dailyWeight'),
+    c?.weight ?? ''
+  );
 
-  $('#dailyWeightUnit')
-    .value =
-      c?.weightUnit ||
-      'lb';
+  setInputValue(
+    $('#dailyWeightUnit'),
+    c?.weightUnit || 'lb'
+  );
 
   const sleepTotal =
     c?.sleepMinutes != null
@@ -736,19 +711,19 @@ function renderCheckIn() {
         )
       : null;
 
-  $('#dailySleepHours')
-    .value =
-      sleepTotal == null
-        ? ''
-        : Math.floor(
-            sleepTotal / 60
-          );
+  setInputValue(
+    $('#dailySleepHours'),
+    sleepTotal == null
+      ? ''
+      : Math.floor(sleepTotal / 60)
+  );
 
-  $('#dailySleepMinutes')
-    .value =
-      sleepTotal == null
-        ? ''
-        : sleepTotal % 60;
+  setInputValue(
+    $('#dailySleepMinutes'),
+    sleepTotal == null
+      ? ''
+      : sleepTotal % 60
+  );
 
   $('#dailyWater').value =
     c?.waterOz ?? 0;
@@ -1539,6 +1514,20 @@ function updateExerciseFields() {
       !cardio;
 }
 
+const TYPE_FIELDS = ['sets', 'reps', 'weight', 'duration', 'distance', 'distanceUnit'];
+
+// Keep an edited exercise's identity and log time, and drop fields from its old type.
+function mergeEditedExercise(previous = {}, entry) {
+  const kept = { ...previous };
+  TYPE_FIELDS.forEach(field => delete kept[field]);
+  return {
+    ...kept,
+    ...entry,
+    id: previous.id || entry.id,
+    loggedAt: previous.loggedAt || entry.loggedAt
+  };
+}
+
 function saveExercise(ev) {
   ev.preventDefault();
 
@@ -1629,7 +1618,10 @@ function saveExercise(ev) {
     activeWorkout
       .exercises[
         +editIndex
-      ] = { ...activeWorkout.exercises[+editIndex], ...entry };
+      ] = mergeEditedExercise(
+        activeWorkout.exercises[+editIndex],
+        entry
+      );
   } else {
     activeWorkout
       .exercises.push(
@@ -1828,6 +1820,7 @@ function saveFood(ev) {
   );
 
   render();
+  window.dispatchEvent(new CustomEvent('fitquest:nutrition-updated'));
 }
 
 async function lookupFood() {
@@ -2084,7 +2077,14 @@ function saveCheckIn() {
     '📡 Daily recovery intel saved'
   );
 
+  ['#dailyWeight', '#dailyWeightUnit', '#dailySleepHours', '#dailySleepMinutes']
+    .forEach(selector => {
+      const input = $(selector);
+      if (input) delete input.dataset.dirty;
+    });
+
   render();
+  window.dispatchEvent(new CustomEvent('fitquest:checkin-saved'));
 }
 
 function addWater(amount) {
@@ -2108,6 +2108,7 @@ function addWater(amount) {
   );
 
   render();
+  window.dispatchEvent(new CustomEvent('fitquest:checkin-saved'));
 }
 
 function createNewWorkout(ev) {
@@ -2118,19 +2119,7 @@ function createNewWorkout(ev) {
       .value ||
     localDateISO();
 
-  const local =
-    new Date(
-      `${dateValue}T12:00:00`
-    );
-
-  const day =
-    new Intl.DateTimeFormat(
-      'en-US',
-      {
-        weekday:
-          'long'
-      }
-    ).format(local);
+  const day = weekdayName(dateValue);
 
   const time =
     $('#newWorkoutTime')
@@ -2210,34 +2199,6 @@ function createNewWorkout(ev) {
   );
 }
 
-function toast(message) {
-  const el =
-    $('#toast');
-
-  if (!el) return;
-
-  el.textContent =
-    message;
-
-  el.classList.add(
-    'show'
-  );
-
-  clearTimeout(
-    window
-      .__fitquestToast
-  );
-
-  window.__fitquestToast =
-    setTimeout(
-      () =>
-        el.classList
-          .remove(
-            'show'
-          ),
-      2600
-    );
-}
 
 function bindAppEvents() {
   $('#addExerciseBtn')
@@ -2514,6 +2475,18 @@ export async function startFitQuest() {
     );
 
   bindAppEvents();
+
+  ['#dailyWeight', '#dailyWeightUnit', '#dailySleepHours', '#dailySleepMinutes']
+    .forEach(selector =>
+      $(selector)?.addEventListener('input', event => {
+        event.target.dataset.dirty = 'true';
+      })
+    );
+
+  window.addEventListener('fitquest:saved', event => {
+    if (event.detail?.source !== 'app') void reloadState();
+  });
+  window.addEventListener('fitquest:remote-update', () => void reloadState());
 
   appStarted = true;
 

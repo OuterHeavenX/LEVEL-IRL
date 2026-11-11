@@ -1,10 +1,8 @@
 import { seedData } from './data/defaultData.js';
 import { loadSave, writeSave } from './lib/storage.js';
 import { calculateStats } from './lib/progression.js';
+import { $, localDateISO } from './lib/dom.js';
 
-const $ = selector => document.querySelector(selector);
-const localDateISO = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
 let busy = false;
 
@@ -412,9 +410,11 @@ function boot() {
     }
   });
 
-  setInterval(() => {
-    if ($('#finishAdventureBtn')) void sync();
-  }, 2200);
+  let syncTimer = null;
+  window.addEventListener('fitquest:saved', () => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => void sync(), 100);
+  });
 }
 
 if (document.readyState === 'loading') {

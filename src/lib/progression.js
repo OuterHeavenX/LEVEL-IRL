@@ -1,3 +1,5 @@
+import { localDateISO, addDays } from './dom.js';
+
 export function calculateStats(data) {
   const workouts = data.workouts || [];
   const exercises = workouts.flatMap(w => w.exercises || []);
@@ -38,7 +40,12 @@ export function calculateStats(data) {
       .filter(Boolean)
   )].sort();
 
-  const streak = calculateStreak(distinctDates);
+  // The current streak only counts if the last workout was today or yesterday.
+  const lastDate = distinctDates[distinctDates.length - 1];
+  const streak = lastDate && lastDate >= addDays(localDateISO(), -1)
+    ? streakEndingAt(distinctDates)
+    : 0;
+  const bestStreak = longestStreak(distinctDates);
   const level = Math.floor(xp / 500) + 1;
   const levelXp = xp % 500;
 
@@ -48,6 +55,7 @@ export function calculateStats(data) {
     cardio,
     xp,
     streak,
+    bestStreak,
     level,
     levelXp,
     completionXp,
@@ -55,21 +63,37 @@ export function calculateStats(data) {
   };
 }
 
-function calculateStreak(dateStrings) {
-  if (!dateStrings.length) return 0;
+const dayGap = (later, earlier) =>
+  Math.round((new Date(`${later}T12:00:00`) - new Date(`${earlier}T12:00:00`)) / 86400000);
 
+// Consecutive days ending at the last date in a sorted list of YYYY-MM-DD strings.
+export function streakEndingAt(sortedDates) {
+  if (!sortedDates.length) return 0;
   let streak = 1;
-
-  for (let i = dateStrings.length - 1; i > 0; i--) {
-    const a = new Date(`${dateStrings[i]}T12:00:00`);
-    const b = new Date(`${dateStrings[i - 1]}T12:00:00`);
-    const diff = Math.round((a - b) / 86400000);
-
-    if (diff === 1) streak++;
+  for (let i = sortedDates.length - 1; i > 0; i--) {
+    if (dayGap(sortedDates[i], sortedDates[i - 1]) === 1) streak++;
     else break;
   }
-
   return streak;
+}
+
+function longestStreak(sortedDates) {
+  let best = 0, run = 0;
+  sortedDates.forEach((date, i) => {
+    run = i && dayGap(date, sortedDates[i - 1]) === 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+  });
+  return best;
+}
+
+// Streak of completed adventures up to and including `date` (used for boss damage).
+export function completedStreakAsOf(data, date) {
+  const dates = [...new Set(
+    (data.workouts || [])
+      .filter(w => w.completed && w.date && w.date <= date)
+      .map(w => w.date)
+  )].sort();
+  return streakEndingAt(dates);
 }
 
 /*

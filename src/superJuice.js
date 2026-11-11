@@ -1,12 +1,10 @@
-const $ = selector => document.querySelector(selector);
-const $$ = selector => [...document.querySelectorAll(selector)];
+import { $, $$, reducedMotion } from './lib/dom.js';
 
 let audioContext = null;
-let muted = localStorage.getItem('fitquest-sound-muted') === 'true';
+const MUTE_KEY = 'fitquest-sound-muted';
+let muted = false;
+try { muted = localStorage.getItem(MUTE_KEY) === 'true'; } catch {}
 
-function reducedMotion() {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-}
 
 function tone(frequency = 440, duration = .08, type = 'sine', volume = .035, delay = 0) {
   if (muted) return;
@@ -112,7 +110,7 @@ function installSoundToggle() {
   button.addEventListener('click', event => {
     event.stopPropagation();
     muted = !muted;
-    localStorage.setItem('fitquest-sound-muted', String(muted));
+    try { localStorage.setItem(MUTE_KEY, String(muted)); } catch {}
     button.textContent = muted ? '🔇' : '🔊';
     button.title = muted ? 'Turn interface sounds on' : 'Mute interface sounds';
     button.setAttribute('aria-label', button.title);
@@ -162,16 +160,23 @@ function boot() {
   window.addEventListener('fitquest:boss-hit', () => sound('impact'));
   window.addEventListener('fitquest:adventure-ended', () => sound('success'));
 
+  // app.js replaces these numbers with textContent (a childList change) and
+  // re-renders often, so only pop when the value really changed.
   const observer = new MutationObserver(records => {
-    records.forEach(record => {
-      if (record.type !== 'characterData') return;
-      const parent = record.target.parentElement;
-      if (!parent?.matches('.stat strong,#levelValue')) return;
-      parent.classList.remove('fq-value-pop');
-      requestAnimationFrame(() => parent.classList.add('fq-value-pop'));
+    new Set(records.map(record => record.target)).forEach(el => {
+      const target = el.nodeType === Node.ELEMENT_NODE ? el : el.parentElement;
+      if (!target) return;
+      const value = target.textContent;
+      if (target.dataset.fqValue === value) return;
+      target.dataset.fqValue = value;
+      target.classList.remove('fq-value-pop');
+      requestAnimationFrame(() => target.classList.add('fq-value-pop'));
     });
   });
-  observer.observe(document.body, { subtree: true, characterData: true });
+  $$('.stat strong, #levelValue').forEach(el => {
+    el.dataset.fqValue = el.textContent;
+    observer.observe(el, { childList: true, characterData: true, subtree: true });
+  });
   staggerCards();
 }
 

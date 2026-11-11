@@ -4,8 +4,7 @@ import './juiceEngine.js';
 import './superJuice.js';
 import './restCamp.js';
 import './characterProgression.js';
-const $ = selector => document.querySelector(selector);
-const $$ = selector => [...document.querySelectorAll(selector)];
+import { $, $$ } from './lib/dom.js';
 
 const SCREENS = [
   { id: 'home', label: 'Home', icon: '🏠' },
@@ -17,7 +16,6 @@ const SCREENS = [
   { id: 'camp', label: 'Camp', icon: '🔥' }
 ];
 
-let currentScreen = 'home';
 let observer = null;
 let arrangeTimer = null;
 
@@ -657,7 +655,6 @@ function arrange() {
 function showScreen(id, options = {}) {
   if (!SCREENS.some(screen => screen.id === id)) id = 'home';
 
-  currentScreen = id;
 
   $$('.fitquest-screen').forEach(screen => {
     const active = screen.dataset.fitquestScreen === id;

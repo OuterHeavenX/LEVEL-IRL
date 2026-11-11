@@ -38,11 +38,23 @@ export const quickFoods = [
 
 export const findQuickFood = name => quickFoods.find(f => f.name.toLowerCase() === String(name).trim().toLowerCase());
 
-const normalizeNutriment = (nutriments, key) => {
-  const serving = nutriments?.[`${key}_serving`];
-  const per100 = nutriments?.[`${key}_100g`];
-  return Number.isFinite(Number(serving)) ? Number(serving) : Number(per100) || 0;
-};
+const hasValue = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+
+// Use per-serving values when the product has them; otherwise use per-100 g values
+// and label the serving to match, so calories are never mislabelled.
+function productNutrition(p) {
+  const n = p.nutriments || {};
+  const perServing = hasValue(n['energy-kcal_serving']);
+  const suffix = perServing ? '_serving' : '_100g';
+  const pick = key => hasValue(n[`${key}${suffix}`]) ? Number(n[`${key}${suffix}`]) : 0;
+  return {
+    serving: perServing ? (p.serving_size || '1 serving') : 'per 100 g',
+    calories: pick('energy-kcal'),
+    protein: pick('proteins'),
+    carbs: pick('carbohydrates'),
+    fat: pick('fat')
+  };
+}
 
 export async function searchOpenFoodFacts(term){
   const query = String(term || '').trim();
@@ -62,11 +74,7 @@ export async function searchOpenFoodFacts(term){
     code:p.code || '',
     name:p.product_name,
     brand:p.brands || '',
-    serving:p.serving_size || 'per 100 g',
-    calories: normalizeNutriment(p.nutriments, 'energy-kcal'),
-    protein: normalizeNutriment(p.nutriments, 'proteins'),
-    carbs: normalizeNutriment(p.nutriments, 'carbohydrates'),
-    fat: normalizeNutriment(p.nutriments, 'fat'),
+    ...productNutrition(p),
     icon:'🔎'
   }));
 }
