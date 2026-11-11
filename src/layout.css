@@ -6,7 +6,7 @@
 
   Layout modes:
     compact     ≤ 720px wide        single column, bottom tab bar
-    regular     721–1099px wide     two columns where cards fit, top tab bar
+    regular     721–1099px wide     top tab bar; one column up to 900px, two columns from 901px
     wide        ≥ 1100px            two columns, full header
     short       landscape ≤ 500px tall: header and tabs tighten up
 */
@@ -14,13 +14,15 @@
 :root {
   --fq-gutter: 20px;
   --fq-gap: 18px;
+  --fq-card-pad: 22px;
+  --fq-card-radius: 22px;
   --fq-safe-top: env(safe-area-inset-top, 0px);
   --fq-safe-right: env(safe-area-inset-right, 0px);
   --fq-safe-bottom: env(safe-area-inset-bottom, 0px);
   --fq-safe-left: env(safe-area-inset-left, 0px);
 }
 
-/* ---------- Shell ---------- */
+/* Shell */
 
 #appRoot .app-shell {
   width: 100%;
@@ -34,7 +36,7 @@
     calc(var(--fq-safe-left) + var(--fq-gutter));
 }
 
-/* ---------- Header ---------- */
+/* Header */
 
 #appRoot .topbar {
   display: flex;
@@ -63,16 +65,6 @@
   min-height: 44px;
 }
 
-/* The sound toggle lives in the header next to the level badge. */
-#appRoot .header-actions #fitquestSoundToggle {
-  position: static;
-  width: 44px;
-  height: 44px;
-  flex: none;
-  border-radius: 999px;
-  box-shadow: none;
-}
-
 /* Decorative status pill only when there is room for it. */
 @media (max-width: 1099px) {
   #appRoot .header-actions #opsStatus {
@@ -80,7 +72,7 @@
   }
 }
 
-/* ---------- Tab bar (regular / wide) ---------- */
+/* Tab bar (regular / wide) */
 
 @media (min-width: 721px) {
   #appRoot #fitquestAppNav {
@@ -104,7 +96,7 @@
   }
 }
 
-/* ---------- Screen grid ---------- */
+/* Screen grid */
 
 #appRoot .fitquest-screen-grid {
   gap: var(--fq-gap);
@@ -122,14 +114,62 @@
   gap: var(--fq-gap);
 }
 
-/* ---------- Home: day card ---------- */
+/* Cards: one box and one header for every top-level card */
+
+#appRoot .fitquest-screen-grid > .card {
+  padding: var(--fq-card-pad);
+  border-radius: var(--fq-card-radius);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--shadow);
+}
+
+#appRoot .fitquest-screen-grid > .card > .section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+  text-align: left;
+}
+
+#appRoot .fitquest-screen-grid > .card > .section-heading :is(h2, h3) {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+#appRoot .fitquest-screen-grid > .card > .section-heading .eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  color: #9ba7c7;
+}
+
+#appRoot .fitquest-screen-grid > .card > .section-heading > .pill {
+  flex: none;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  #appRoot .fitquest-screen-grid > .card:hover {
+    border-color: rgba(139, 124, 255, .24);
+    box-shadow: 0 22px 60px rgba(0, 0, 0, .36), 0 0 25px rgba(139, 124, 255, .07);
+  }
+}
+
+/* Home: day card */
 
 #appRoot .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
   align-items: end;
   gap: 28px;
-  padding: 28px;
 }
 
 #appRoot .hero h2 {
@@ -147,11 +187,10 @@
   #appRoot .hero {
     grid-template-columns: 1fr;
     gap: 20px;
-    padding: 22px;
   }
 }
 
-/* ---------- Home: stat tiles ---------- */
+/* Home: stat tiles */
 
 #appRoot .stats-grid {
   display: grid;
@@ -186,17 +225,9 @@
   }
 }
 
-/* ---------- Cards missing inner padding ---------- */
+/* Workout log header */
 
-#appRoot .quest-board,
-#appRoot .nutrition-card {
-  padding: 22px;
-}
-
-/* ---------- Workout log header ---------- */
-
-#appRoot .quest-card > .section-heading {
-  flex-wrap: wrap;
+#appRoot .fitquest-screen-grid > .quest-card > .section-heading {
   align-items: flex-end;
   row-gap: 14px;
 }
@@ -217,10 +248,6 @@
   grid-column: 1 / -1;
 }
 
-#appRoot .quest-card .workout-list {
-  margin-top: 14px;
-}
-
 #appRoot .fitquest-adventure-actions > button {
   min-width: 0;
   min-height: 44px;
@@ -230,16 +257,19 @@
   white-space: nowrap;
 }
 
-#appRoot .fitquest-adventure-actions .finish-adventure-btn.adventure-ended {
-  min-width: 0;
+/* Daily check-in */
+
+/* Flex rather than an auto-fit grid, so a field that wraps alone fills its row. */
+#appRoot .checkin-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 16px;
+  align-items: flex-start;
 }
 
-/* ---------- Daily check-in ---------- */
-
-#appRoot .checkin-grid {
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 14px 16px;
-  align-items: start;
+#appRoot .checkin-grid > * {
+  flex: 1 1 230px;
+  min-width: 0;
 }
 
 #appRoot .checkin-grid label,
@@ -257,12 +287,7 @@
   font-size: 11px;
 }
 
-/* ---------- Boss card ---------- */
-
-#appRoot .fitquest-boss-head {
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
+/* Boss card */
 
 #appRoot .fitquest-boss-heading {
   min-width: 0;
@@ -277,45 +302,44 @@
   line-height: 1.3;
 }
 
-/* ---------- Compact: phones and narrow portrait ---------- */
+/* Activity: weekly totals */
+
+/* Two-column screens leave the weekly card too narrow for four totals in a row. */
+@media (min-width: 901px) and (max-width: 1179px) {
+  #appRoot .fitquest-week-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Compact: phones and narrow portrait */
 
 @media (max-width: 720px) {
   :root {
     --fq-gutter: 14px;
     --fq-gap: 14px;
+    --fq-card-pad: 18px;
   }
 
   #appRoot .app-shell {
-    padding-top: calc(var(--fq-safe-top) + 12px) !important;
-    padding-left: calc(var(--fq-safe-left) + var(--fq-gutter)) !important;
-    padding-right: calc(var(--fq-safe-right) + var(--fq-gutter)) !important;
+    padding-top: calc(var(--fq-safe-top) + 12px);
     padding-bottom: 24px;
   }
 
   #appRoot .topbar {
     min-height: 52px;
-    margin: 0 0 10px !important;
-    padding: 0 !important;
+    gap: 12px;
+    margin: 0 0 10px;
+    padding: 0;
   }
 
   #appRoot .header-actions {
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 8px !important;
-  }
-
-  #appRoot .section-heading .pill {
-    white-space: nowrap;
+    gap: 8px;
   }
 
   #appRoot .header-actions #levelChip {
-    min-width: 0 !important;
-    min-height: 44px !important;
-    padding: 0 14px !important;
-    border-radius: 999px !important;
+    padding: 0 14px;
   }
 
-  /* A lone action button uses the full row instead of half of it. */
   #appRoot .fitquest-mobile-actions {
     gap: 8px;
   }
@@ -326,8 +350,14 @@
     font-size: 13px;
   }
 
+  /* A lone action button uses the full row instead of half of it. */
   #appRoot .fitquest-mobile-action:only-child {
     grid-column: 1 / -1;
+  }
+
+  #appRoot .fitquest-adventure-actions > button {
+    font-size: 12px;
+    padding: 8px 10px;
   }
 
   #appRoot .stat {
@@ -335,7 +365,18 @@
   }
 }
 
-/* ---------- Short landscape (phones on their side) ---------- */
+/* Narrow phones: two boss tiles per row, and a lone last tile takes the full row. */
+@media (max-width: 480px) {
+  #appRoot .fitquest-boss-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #appRoot .fitquest-boss-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Short landscape (phones on their side) */
 
 @media (orientation: landscape) and (max-height: 500px) {
   #appRoot .app-shell {
@@ -371,23 +412,5 @@
 
   #appRoot .fitquest-screen-title h2 {
     font-size: 22px;
-  }
-}
-
-/* ---------- Toasts sit at the bottom, clear of the header and tab bar ---------- */
-
-.fq-toast {
-  top: auto !important;
-  right: calc(var(--fq-safe-right) + 20px) !important;
-  bottom: calc(var(--fq-safe-bottom) + 20px) !important;
-}
-
-@media (max-width: 720px) {
-  .fq-toast {
-    top: auto !important;
-    left: calc(var(--fq-safe-left) + 14px) !important;
-    right: calc(var(--fq-safe-right) + 14px) !important;
-    bottom: calc(var(--fq-nav-height, 74px) + var(--fq-safe-bottom) + 18px) !important;
-    max-width: none !important;
   }
 }

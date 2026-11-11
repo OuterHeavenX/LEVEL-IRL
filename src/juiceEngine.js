@@ -1,7 +1,8 @@
 import { readSave, writeSave } from './lib/storage.js';
-import { calculateStats, workoutBattlePower, completedStreakAsOf } from './lib/progression.js';
+import { calculateStats } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
-import { $, localDateISO, reducedMotion, injectStyles, appVisible, whenReady } from './lib/dom.js';
+import { BOSSES, readyBossDamage } from './lib/bosses.js';
+import { $, localDateISO, activeDateISO, escapeHtml, toast, reducedMotion, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 const STREAK_MILESTONES = new Set([3, 7, 14, 30, 60, 100, 180, 365]);
@@ -54,10 +55,20 @@ const LOOT_POOL = [
 let snapshot = null;
 let compareBusy = false;
 let compareTimer = null;
-let internalWrite = false;
 let modalQueue = [];
 let modalOpen = false;
 
+// Every unlock this page has already shown or started with, so a stat that dips
+// and recovers does not announce the same milestone twice.
+const announcedAchievements = new Set();
+const announcedStreaks = new Set();
+
+function seedAnnounced(state) {
+  state.achievementIds.forEach(id => announcedAchievements.add(id));
+  if (STREAK_MILESTONES.has(state.stats.streak)) {
+    announcedStreaks.add(`${state.stats.streak}:${localDateISO()}`);
+  }
+}
 
 function styles() {
   injectStyles('fitquestJuiceStyles', `
@@ -245,7 +256,7 @@ function styles() {
 
     .fitquest-juice-meta small {
       color: #7d8aa5;
-      font-size: 9px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: .08em;
     }
@@ -268,85 +279,6 @@ function styles() {
       cursor: pointer;
     }
 
-
-    .fitquest-action-feed {
-      position: fixed;
-      z-index: 135000;
-      right: 16px;
-      top: calc(env(safe-area-inset-top, 0px) + 86px);
-      width: min(360px, calc(100vw - 32px));
-      display: grid;
-      gap: 9px;
-      pointer-events: none;
-    }
-
-    .fitquest-action-toast {
-      display: grid;
-      grid-template-columns: 42px minmax(0, 1fr);
-      gap: 11px;
-      align-items: center;
-      padding: 12px 14px;
-      border-radius: 16px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(8, 14, 29, .94);
-      box-shadow: 0 18px 60px rgba(0,0,0,.34);
-      backdrop-filter: blur(16px);
-      animation: fitquestActionIn 2.8s ease forwards;
-    }
-
-    .fitquest-action-toast.damage {
-      border-color: rgba(255,111,120,.24);
-      background:
-        linear-gradient(135deg, rgba(255,80,90,.08), transparent 45%),
-        rgba(8,14,29,.95);
-    }
-
-    .fitquest-action-toast.xp {
-      border-color: rgba(105,232,177,.22);
-    }
-
-    .fitquest-action-toast.rare {
-      border-color: rgba(172,112,255,.25);
-      box-shadow:
-        0 18px 60px rgba(0,0,0,.34),
-        0 0 35px rgba(155,93,255,.10);
-    }
-
-    .fitquest-action-icon {
-      width: 42px;
-      height: 42px;
-      display: grid;
-      place-items: center;
-      border-radius: 13px;
-      background: rgba(255,255,255,.055);
-      font-size: 21px;
-    }
-
-    .fitquest-action-copy strong,
-    .fitquest-action-copy small {
-      display: block;
-    }
-
-    .fitquest-action-copy strong {
-      color: #f2f5ff;
-      font-size: 13px;
-      line-height: 1.2;
-    }
-
-    .fitquest-action-copy small {
-      margin-top: 3px;
-      color: #8e9bb5;
-      font-size: 10px;
-      line-height: 1.3;
-    }
-
-    @keyframes fitquestActionIn {
-      0% { opacity: 0; transform: translateX(18px) scale(.96); }
-      10% { opacity: 1; transform: translateX(0) scale(1); }
-      82% { opacity: 1; transform: translateX(0); }
-      100% { opacity: 0; transform: translateX(14px); }
-    }
-
     #fitquestBossBattle.fitquest-hp-chunk .fitquest-boss-bar > i {
       filter: brightness(1.55) saturate(1.25);
       box-shadow: 0 0 28px rgba(255,112,112,.42);
@@ -358,14 +290,6 @@ function styles() {
       transition: width .35s ease;
     }
 
-    @media (max-width: 720px) {
-      .fitquest-action-feed {
-        top: calc(env(safe-area-inset-top, 0px) + 72px);
-        right: 10px;
-        width: min(330px, calc(100vw - 20px));
-      }
-    }
-
     .fitquest-rarity-common { color: #bbc5d8; }
     .fitquest-rarity-rare { color: #67cbff; }
     .fitquest-rarity-epic { color: #c585ff; }
@@ -373,54 +297,40 @@ function styles() {
 
     .fitquest-loot-vault {
       grid-column: 1 / -1;
-      padding: 22px;
-      border-radius: 22px;
-      border: 1px solid rgba(165, 83, 244, .16);
-      background:
-        radial-gradient(circle at 92% 0%, rgba(167, 84, 244, .10), transparent 36%),
-        rgba(15, 22, 41, .93);
-    }
-
-    .fitquest-loot-vault-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      margin-bottom: 14px;
-    }
-
-    .fitquest-loot-vault h3 {
-      margin: 3px 0 0;
     }
 
     .fitquest-loot-count {
-      padding: 7px 10px;
-      border-radius: 999px;
       background: rgba(255,255,255,.05);
       border: 1px solid rgba(255,255,255,.07);
       color: #8e9ab3;
-      font-size: 10px;
-      font-weight: 900;
     }
 
     .fitquest-loot-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+    }
+
+    .fitquest-loot-grid::-webkit-scrollbar {
+      display: none;
     }
 
     .fitquest-loot-item {
-      min-width: 0;
-      padding: 14px;
-      border-radius: 16px;
+      flex: 0 0 132px;
+      min-width: 132px;
+      padding: 10px;
+      border-radius: 13px;
       background: rgba(255,255,255,.038);
       border: 1px solid rgba(255,255,255,.065);
     }
 
     .fitquest-loot-item > span {
       display: block;
-      margin-bottom: 8px;
-      font-size: 28px;
+      margin-bottom: 5px;
+      font-size: 22px;
     }
 
     .fitquest-loot-item strong,
@@ -430,20 +340,20 @@ function styles() {
 
     .fitquest-loot-item strong {
       color: #eef2ff;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.25;
     }
 
     .fitquest-loot-item small {
       margin-top: 4px;
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 900;
       text-transform: uppercase;
       letter-spacing: .07em;
     }
 
     .fitquest-loot-empty {
-      grid-column: 1 / -1;
+      flex: 1 1 100%;
       padding: 20px;
       border-radius: 15px;
       border: 1px dashed rgba(255,255,255,.10);
@@ -487,10 +397,6 @@ function styles() {
       .fitquest-juice-card {
         padding: 24px 20px;
       }
-
-      .fitquest-loot-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -516,11 +422,11 @@ function hash(text = '') {
     value = Math.imul(value, 16777619);
   }
 
-  return Math.abs(value >>> 0);
+  return value >>> 0;
 }
 
 function rarityClass(rarity = '') {
-  return `fitquest-rarity-${String(rarity).toLowerCase()}`;
+  return `fitquest-rarity-${String(rarity).toLowerCase().replace(/[^a-z-]/g, '')}`;
 }
 
 function particleBurst(x = window.innerWidth / 2, y = window.innerHeight / 2, count = 28) {
@@ -550,51 +456,23 @@ function particleBurst(x = window.innerWidth / 2, y = window.innerHeight / 2, co
   }
 }
 
-function xpFloat(amount, anchor = $('#xpBar') || $('#totalXpStat')) {
+function xpFloat(amount, anchor = $('#xpBar')) {
   amount = Math.round(Number(amount) || 0);
   if (amount <= 0) return;
 
   const rect = anchor?.getBoundingClientRect?.();
+  // A hidden screen gives a zero rect; an anchor scrolled out of view is no use either.
+  const usable = rect && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
 
   const el = document.createElement('div');
   el.className = 'fitquest-xp-float';
   el.textContent = `+${amount} XP`;
 
-  el.style.left = `${rect ? rect.left + rect.width / 2 : window.innerWidth / 2}px`;
-  el.style.top = `${rect ? rect.top + rect.height / 2 : window.innerHeight * .30}px`;
+  el.style.left = `${usable ? rect.left + rect.width / 2 : window.innerWidth / 2}px`;
+  el.style.top = `${usable ? rect.top + rect.height / 2 : window.innerHeight * .30}px`;
 
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 1700);
-}
-
-
-function actionToast(icon, title, detail = '', tone = '') {
-  let feed = $('#fitquestActionFeed');
-
-  if (!feed) {
-    feed = document.createElement('div');
-    feed.id = 'fitquestActionFeed';
-    feed.className = 'fitquest-action-feed';
-    document.body.appendChild(feed);
-  }
-
-  const toast = document.createElement('div');
-  toast.className = `fitquest-action-toast ${tone}`.trim();
-  toast.innerHTML = `
-    <div class="fitquest-action-icon">${icon}</div>
-    <div class="fitquest-action-copy">
-      <strong>${title}</strong>
-      ${detail ? `<small>${detail}</small>` : ''}
-    </div>
-  `;
-
-  feed.prepend(toast);
-
-  while (feed.children.length > 3) {
-    feed.lastElementChild?.remove();
-  }
-
-  setTimeout(() => toast.remove(), 3000);
 }
 
 function pulseXpBar() {
@@ -625,65 +503,6 @@ function chunkBossHealth() {
   );
 }
 
-function estimatedActivityDamage(checkIn) {
-  if (!checkIn) return 0;
-
-  return Math.max(
-    0,
-    Math.min(
-      60,
-      Math.floor((Number(checkIn.steps) || 0) / 1000) * 2 +
-      Math.floor((Number(checkIn.activeCalories) || 0) / 100) * 2 +
-      Math.floor((Number(checkIn.exerciseMinutes) || 0) / 15) * 3 +
-      ((Number(checkIn.standHours) || 0) >= 10 ? 5 : 0)
-    )
-  );
-}
-
-function readyDamageSnapshot(data) {
-  const date = localDateISO();
-  const workout =
-    (data.workouts || []).find(item => item.date === date);
-
-  const exercises =
-    Array.isArray(workout?.exercises)
-      ? workout.exercises
-      : [];
-
-  const submitted =
-    Math.max(
-      0,
-      Number(workout?.bossSubmittedExerciseCount) || 0
-    );
-
-  const pendingExercises = exercises.slice(submitted);
-
-  const streak = completedStreakAsOf(data, date);
-
-  const workoutDamage =
-    workoutBattlePower(pendingExercises, streak);
-
-  const checkIn =
-    (data.checkIns || []).find(item => item.date === date);
-
-  const totalActivity =
-    estimatedActivityDamage(checkIn);
-
-  const appliedActivity =
-    Math.max(
-      0,
-      Number(checkIn?.bossActivityDamageApplied) ||
-      Number(checkIn?.bossActivityApplied?.damage) ||
-      0
-    );
-
-  return {
-    workoutDamage,
-    activityDamage:
-      Math.max(0, totalActivity - appliedActivity)
-  };
-}
-
 function queueModal(config) {
   modalQueue.push(config);
   pumpModalQueue();
@@ -702,18 +521,18 @@ function pumpModalQueue() {
 
   overlay.innerHTML = `
     <div class="fitquest-juice-card" role="dialog" aria-modal="true">
-      <div class="fitquest-juice-icon">${config.icon || '✨'}</div>
-      <p class="fitquest-juice-kicker">${config.kicker || 'LEVEL IRL'}</p>
-      <h2>${config.title || 'Campaign Updated'}</h2>
-      <p>${config.message || ''}</p>
+      <div class="fitquest-juice-icon">${escapeHtml(config.icon || '✨')}</div>
+      <p class="fitquest-juice-kicker">${escapeHtml(config.kicker || 'LEVEL IRL')}</p>
+      <h2>${escapeHtml(config.title || 'Campaign Updated')}</h2>
+      <p>${escapeHtml(config.message || '')}</p>
 
       ${
         meta.length
           ? `<div class="fitquest-juice-meta" style="--cols:${Math.min(3, meta.length)}">
               ${meta.map(item => `
                 <div>
-                  <small>${item.label}</small>
-                  <strong class="${item.className || ''}">${item.value}</strong>
+                  <small>${escapeHtml(item.label)}</small>
+                  <strong class="${escapeHtml(item.className || '')}">${escapeHtml(item.value)}</strong>
                 </div>
               `).join('')}
             </div>`
@@ -721,7 +540,7 @@ function pumpModalQueue() {
       }
 
       <button class="fitquest-juice-close" type="button">
-        ${config.button || 'Continue Campaign'}
+        ${escapeHtml(config.button || 'Continue Campaign')}
       </button>
     </div>
   `;
@@ -759,13 +578,13 @@ function summary(data) {
 
   Object.entries(bosses).forEach(([id, boss]) => {
     bossState[id] = {
+      name: boss?.name || '',
       defeated: Boolean(boss?.defeated),
       attackIds: new Set((boss?.attacks || []).map(attack => attack.id)),
       lastAttack: boss?.lastAttack || null
     };
   });
 
-  const inventory = data.ui?.rpg?.inventory || [];
   const activityAchievements = data.ui?.rpg?.activityAchievements || {};
 
   const completedWorkoutIds = new Set(
@@ -775,16 +594,14 @@ function summary(data) {
       .filter(Boolean)
   );
 
-  const readyDamage = readyDamageSnapshot(data);
+  const ready = readyBossDamage(data);
 
   return {
     stats,
-    readyWorkoutDamage: readyDamage.workoutDamage,
-    readyActivityDamage: readyDamage.activityDamage,
+    readyWorkoutDamage: ready.move,
+    readyActivityDamage: ready.activity,
     achievementIds: new Set(achievements.unlocked.map(item => item.id)),
     achievementsById: new Map(achievements.unlocked.map(item => [item.id, item])),
-    inventoryIds: new Set(inventory.map(item => item.id)),
-    inventoryById: new Map(inventory.map(item => [item.id, item])),
     activityAchievementIds: new Set(Object.keys(activityAchievements)),
     activityAchievements,
     bosses: bossState,
@@ -792,9 +609,7 @@ function summary(data) {
   };
 }
 
-
-function dayConquered(data) {
-  const date = localDateISO();
+function dayConquered(data, date = localDateISO()) {
   const workout = (data.workouts || []).find(item => item.date === date && item.completed);
 
   if (!workout) return false;
@@ -827,15 +642,15 @@ function renderDayConquered(data) {
 
   hero.querySelector('.fitquest-day-conquered')?.remove();
 
-  if (!dayConquered(data)) return;
-
-  const first = hero.firstElementChild || hero;
+  if (!dayConquered(data, activeDateISO())) return;
 
   const badge = document.createElement('div');
   badge.className = 'fitquest-day-conquered';
-  badge.innerHTML = '✓ DAY CONQUERED';
+  badge.textContent = '✓ DAY CONQUERED';
 
-  first.appendChild(badge);
+  const heroDate = hero.querySelector('#heroDate');
+  if (heroDate) heroDate.after(badge);
+  else hero.appendChild(badge);
 }
 
 function renderLootVault(data) {
@@ -847,19 +662,21 @@ function renderLootVault(data) {
   if (!vault) {
     vault = document.createElement('section');
     vault.id = 'fitquestLootVault';
-    vault.className = 'fitquest-loot-vault';
-    character.appendChild(vault);
+    vault.className = 'card fitquest-loot-vault';
+    const dossier = character.querySelector('.character-card');
+    if (dossier) dossier.after(vault);
+    else character.appendChild(vault);
   }
 
   const inventory = data.ui?.rpg?.inventory || [];
 
   vault.innerHTML = `
-    <div class="fitquest-loot-vault-head">
+    <div class="section-heading fitquest-loot-vault-head">
       <div>
-        <p class="eyebrow">RELIC VAULT · COSMETIC LOOT</p>
-        <h3>Campaign Inventory</h3>
+        <p class="eyebrow">COSMETIC LOOT</p>
+        <h3>Relic Vault</h3>
       </div>
-      <span class="fitquest-loot-count">${inventory.length} ITEM${inventory.length === 1 ? '' : 'S'}</span>
+      <span class="pill fitquest-loot-count">${inventory.length} ITEM${inventory.length === 1 ? '' : 'S'}</span>
     </div>
 
     <div class="fitquest-loot-grid">
@@ -867,9 +684,9 @@ function renderLootVault(data) {
         inventory.length
           ? [...inventory].reverse().map(item => `
               <article class="fitquest-loot-item">
-                <span>${item.icon || '🎁'}</span>
-                <strong>${item.name || 'Unknown Relic'}</strong>
-                <small class="${rarityClass(item.rarity)}">${item.rarity || 'Relic'}</small>
+                <span>${escapeHtml(item?.icon || '🎁')}</span>
+                <strong>${escapeHtml(item?.name || 'Unknown Relic')}</strong>
+                <small class="${rarityClass(item?.rarity)}">${escapeHtml(item?.rarity || 'Relic')}</small>
               </article>
             `).join('')
           : `<div class="fitquest-loot-empty">
@@ -880,7 +697,7 @@ function renderLootVault(data) {
   `;
 }
 
-function juiceExistingCompletionOverlay(node) {
+function juiceLevelOverlay(node) {
   if (!(node instanceof Element)) return;
 
   // The level-up ceremony overlay is created by rpgExpansion.js.
@@ -899,7 +716,7 @@ function juiceExistingCompletionOverlay(node) {
     particleBurst(
       rect.left + rect.width / 2,
       rect.top + rect.height * .32,
-      overlay.textContent.includes('LEVEL UP') ? 50 : 30
+      50
     );
   }, 80);
 }
@@ -958,7 +775,7 @@ function announceLoot(item) {
     icon: item.icon || '🎁',
     kicker: `${String(item.rarity || 'RARE').toUpperCase()} DROP`,
     title: item.name || 'Mystery Relic',
-    message: item.description || 'A cosmetic relic has been added to your Campaign Inventory.',
+    message: item.description || 'A cosmetic relic has been added to your Relic Vault.',
     meta: [
       {
         label: 'Rarity',
@@ -967,7 +784,7 @@ function announceLoot(item) {
       },
       {
         label: 'Collection',
-        value: 'Campaign Vault'
+        value: 'Relic Vault'
       }
     ],
     button: 'Claim Relic',
@@ -992,20 +809,18 @@ function announceStreak(streak) {
   });
 }
 
-function announceBossDefeat(bossId) {
-  const title =
-    bossId === 'iron-warden-v1'
-      ? 'The Iron Warden Has Fallen'
-      : 'Boss Defeated';
+function announceBossDefeat(id, storedName) {
+  const def = BOSSES.find(boss => boss.id === id);
+  const name = storedName || def?.name;
 
   queueModal({
     icon: '💥',
     kicker: 'BOSS DEFEATED',
-    title,
+    title: name ? `${name} Has Fallen` : 'Boss Defeated',
     message: 'The battlefield is quiet. Victory rewards have been added to your campaign.',
     meta: [
       { label: 'Result', value: 'VICTORY', className: 'fitquest-rarity-legendary' },
-      { label: 'Reward', value: 'LOOT UNLOCKED' }
+      { label: 'Reward', value: def?.loot ? `${def.loot.icon} ${def.loot.name}` : 'LOOT UNLOCKED' }
     ],
     particles: 70
   });
@@ -1015,7 +830,7 @@ function chooseLoot(workout, existingInventory) {
   const seed = hash(`${workout.id}|${workout.completedAt || workout.date}|juice-v1`);
   const existingJuice = existingInventory.filter(item => item?.source === 'Adventure Drop');
 
-  // Guaranteed first adventure drop after Juice Pack installation.
+  // The first Adventure Drop is always guaranteed.
   const shouldDrop = existingJuice.length === 0 || seed % 100 < 42;
   if (!shouldDrop) return null;
 
@@ -1033,7 +848,7 @@ function chooseLoot(workout, existingInventory) {
   if (!pool.length) pool = LOOT_POOL;
 
   const unseen = pool.filter(
-    item => !existingInventory.some(existing => existing.id === item.id)
+    item => !existingInventory.some(existing => existing?.id === item.id)
   );
 
   const choices = unseen.length ? unseen : pool;
@@ -1049,7 +864,7 @@ function chooseLoot(workout, existingInventory) {
   };
 }
 
-async function processLootRoll(data, newlyCompletedIds) {
+function processLootRoll(data, newlyCompletedIds) {
   if (!newlyCompletedIds.length) return { changed: false, dropped: [] };
 
   data.ui ||= {};
@@ -1081,29 +896,26 @@ async function processLootRoll(data, newlyCompletedIds) {
     }
   }
 
-  if (changed) {
-    internalWrite = true;
-    await writeSave(data);
-    internalWrite = false;
-  }
+  if (changed) writeSave(data);
 
   return { changed, dropped };
 }
 
-async function compareNow() {
-  if (compareBusy || internalWrite) return;
-  if (!$('#appRoot') || $('#appRoot').hidden) return;
+function compareNow() {
+  if (compareBusy) return;
+  if (!appVisible()) return;
 
   compareBusy = true;
 
   try {
-    const data = (await readSave())?.save;
+    const data = readSave();
     if (!data) return;
 
     const next = summary(data);
 
     if (!snapshot) {
       snapshot = next;
+      seedAnnounced(next);
       renderLootVault(data);
       renderDayConquered(data);
       return;
@@ -1114,40 +926,39 @@ async function compareNow() {
     if (xpDelta > 0) {
       xpFloat(xpDelta);
       pulseXpBar();
-      actionToast(
-        '✨',
-        `+${xpDelta} XP`,
-        'Campaign experience increased.',
-        'xp'
-      );
     }
+
+    const streakKey = `${next.stats.streak}:${localDateISO()}`;
 
     if (
       next.stats.streak > snapshot.stats.streak &&
-      STREAK_MILESTONES.has(next.stats.streak)
+      STREAK_MILESTONES.has(next.stats.streak) &&
+      !announcedStreaks.has(streakKey)
     ) {
-      actionToast(
-        '🔥',
-        `${next.stats.streak}-day streak`,
-        'Momentum maintained.',
-        'rare'
-      );
+      announcedStreaks.add(streakKey);
+      toast(`${next.stats.streak}-day streak`, {
+        icon: '🔥',
+        detail: 'Momentum maintained.',
+        tone: 'rare'
+      });
       announceStreak(next.stats.streak);
     }
 
     const newAchievements = [...next.achievementIds]
-      .filter(id => !snapshot.achievementIds.has(id))
+      .filter(id => !snapshot.achievementIds.has(id) && !announcedAchievements.has(id))
       .map(id => next.achievementsById.get(id))
       .filter(Boolean);
 
+    next.achievementIds.forEach(id => announcedAchievements.add(id));
+
     newAchievements.slice(0, 2).forEach(item => {
-      actionToast(
-        item.icon || '🏆',
-        'Achievement unlocked',
-        item.name || 'New campaign milestone.',
-        'rare'
-      );
-      announceAchievement(item);
+      toast('Achievement unlocked', {
+        icon: item.icon || '🏆',
+        detail: item.name || 'New campaign milestone.',
+        tone: 'rare'
+      });
+      // rpgExpansion runs its own LEVEL UP ceremony for level milestones.
+      if (item.kind !== 'level') announceAchievement(item);
     });
 
     const newActivityAchievements =
@@ -1157,18 +968,24 @@ async function compareNow() {
         .filter(Boolean);
 
     newActivityAchievements.forEach(item => {
-      actionToast(
-        item.icon || '⌚',
-        'Activity achievement',
-        item.name || 'Movement milestone reached.',
-        'rare'
-      );
-
-      announceAchievement({
-        ...item,
-        kind: 'activity'
+      toast('Activity achievement', {
+        icon: item.icon || '⌚',
+        detail: item.name || 'Movement milestone reached.',
+        tone: 'rare'
       });
     });
+
+    const topActivity = newActivityAchievements.reduce(
+      (best, item) => (Number(item.target) || 0) > (Number(best?.target) || 0) ? item : best,
+      null
+    );
+
+    if (topActivity) {
+      announceAchievement({
+        ...topActivity,
+        kind: 'activity'
+      });
+    }
 
     Object.entries(next.bosses).forEach(([bossId, boss]) => {
       const previousBoss = snapshot.bosses[bossId];
@@ -1185,64 +1002,57 @@ async function compareNow() {
 
         chunkBossHealth();
 
-        actionToast(
-          boss.lastAttack.source === 'activity' ? '⌚' : '⚔️',
-          `Boss −${Math.round(Number(boss.lastAttack.damage) || 0)} HP`,
-          boss.lastAttack.source === 'activity'
+        toast(`Boss −${Math.round(Number(boss.lastAttack.damage) || 0)} HP`, {
+          icon: boss.lastAttack.source === 'activity' ? '⌚' : '⚔️',
+          detail: boss.lastAttack.source === 'activity'
             ? 'Field Strike landed.'
-            : 'Adventure Strike landed.',
-          'damage'
-        );
+            : 'Boss Strike landed.',
+          tone: 'damage'
+        });
       }
 
       if (boss.defeated && !previousBoss?.defeated) {
-        announceBossDefeat(bossId);
+        announceBossDefeat(bossId, boss.name);
       }
     });
-
 
     if (
       next.readyWorkoutDamage > snapshot.readyWorkoutDamage &&
       next.readyWorkoutDamage > 0
     ) {
-      actionToast(
-        '⚔️',
-        `${next.readyWorkoutDamage} boss damage ready`,
-        'New workout power is charged. Strike when ready.',
-        'xp'
-      );
+      toast(`${next.readyWorkoutDamage} boss damage ready`, {
+        icon: '⚔️',
+        detail: 'New workout power is charged. Strike when ready.',
+        tone: 'xp'
+      });
     }
 
     if (
       next.readyActivityDamage > snapshot.readyActivityDamage &&
       next.readyActivityDamage > 0
     ) {
-      actionToast(
-        '⌚',
-        `Field Strike ready · ${next.readyActivityDamage} damage`,
-        'New Apple Watch activity can hit the boss.',
-        'xp'
-      );
+      toast(`Field Strike ready · ${next.readyActivityDamage} damage`, {
+        icon: '⌚',
+        detail: 'New Apple Watch activity can hit the boss.',
+        tone: 'xp'
+      });
     }
 
     const newlyCompletedIds =
       [...next.completedWorkoutIds]
         .filter(id => !snapshot.completedWorkoutIds.has(id));
 
-    const lootResult =
-      await processLootRoll(data, newlyCompletedIds);
+    const lootResult = processLootRoll(data, newlyCompletedIds);
 
     if (lootResult.changed) {
-      const afterLoot = summary(data);
-      snapshot = afterLoot;
+      snapshot = summary(data);
 
       lootResult.dropped.forEach(item => {
-        actionToast(
-          item.icon || '🎁',
-          `${item.rarity || 'Rare'} loot drop`,
-          item.name || 'New relic added to your vault.',
-          'rare'
-        );
+        toast(`${item.rarity || 'Rare'} loot drop`, {
+          icon: item.icon || '🎁',
+          detail: item.name || 'New relic added to your Relic Vault.',
+          tone: 'rare'
+        });
         announceLoot(item);
       });
     } else {
@@ -1252,16 +1062,17 @@ async function compareNow() {
     renderLootVault(data);
     renderDayConquered(data);
 
-    if (
-      dayConquered(data) &&
-      newlyCompletedIds.length
-    ) {
-      actionToast(
-        '🏁',
-        'DAY CONQUERED',
-        'Training and daily systems aligned.',
-        'rare'
-      );
+    const today = localDateISO();
+    const todayNewlyCompleted = (data.workouts || []).some(
+      workout => workout.date === today && workout.completed && newlyCompletedIds.includes(workout.id)
+    );
+
+    if (todayNewlyCompleted && dayConquered(data)) {
+      toast('DAY CONQUERED', {
+        icon: '🏁',
+        detail: 'Training and daily systems aligned.',
+        tone: 'rare'
+      });
 
       queueModal({
         icon: '🏁',
@@ -1280,7 +1091,6 @@ async function compareNow() {
     console.warn('Juice Engine comparison failed:', error);
   } finally {
     compareBusy = false;
-    internalWrite = false;
   }
 }
 
@@ -1289,10 +1099,10 @@ function scheduleCompare(delay = 280) {
   compareTimer = setTimeout(() => void compareNow(), delay);
 }
 
-function watchCompletionOverlay() {
+function watchLevelOverlay() {
   const observer = new MutationObserver(records => {
     records.forEach(record => {
-      record.addedNodes.forEach(juiceExistingCompletionOverlay);
+      record.addedNodes.forEach(juiceLevelOverlay);
     });
   });
 
@@ -1300,34 +1110,24 @@ function watchCompletionOverlay() {
   observer.observe(document.body, { childList: true });
 }
 
-async function baseline() {
-  try {
-    const data = (await readSave())?.save;
-
-    if (!data) return;
-
-    snapshot = summary(data);
-    renderLootVault(data);
-    renderDayConquered(data);
-  } catch (error) {
-    console.warn('Juice Engine baseline failed:', error);
-  }
-}
-
 function boot() {
   styles();
-  watchCompletionOverlay();
+  watchLevelOverlay();
 
-  whenReady(() => appVisible() && $('#fitquestScreenHost'), () => {
-    void baseline();
-  });
+  whenReady(() => appVisible() && $('#fitquestScreenHost'), () => scheduleCompare(0));
 
-  window.addEventListener('fitquest:saved', () => {
+  window.addEventListener('fitquest:saved', event => {
+    // An imported save is a new baseline, not a run of fresh unlocks.
+    if (event.detail?.source === 'import') snapshot = null;
     scheduleCompare(350);
   });
 
   window.addEventListener('fitquest:remote-update', () => {
     scheduleCompare(180);
+  });
+
+  window.addEventListener('fitquest:active-date', () => {
+    scheduleCompare(80);
   });
 
   window.addEventListener('fitquest:navigation', event => {
@@ -1343,8 +1143,4 @@ function boot() {
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
-}
+boot();

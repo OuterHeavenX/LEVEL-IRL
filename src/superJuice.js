@@ -51,7 +51,7 @@ function styles() {
     .fq-nav-spark{position:fixed;z-index:149999;width:5px;height:5px;border-radius:50%;pointer-events:none;background:#9b83ff;box-shadow:0 0 10px currentColor;animation:fqNavSpark .62s ease-out forwards}
     @keyframes fqNavSpark{to{opacity:0;transform:translate(var(--x),var(--y)) scale(.2)}}
     .fitquest-screen.active>.fitquest-screen-title{animation:fqTitleSlash .48s cubic-bezier(.18,.85,.2,1) both}
-    .fitquest-screen.active>.fitquest-screen-grid>*{animation:fqCardDeal .5s cubic-bezier(.18,.85,.2,1) both;animation-delay:calc(var(--fq-index,0)*55ms)}
+    .fitquest-screen.active>.fitquest-screen-grid>*{animation:fqCardDeal .5s cubic-bezier(.18,.85,.2,1) backwards;animation-delay:calc(var(--fq-index,0)*55ms)}
     @keyframes fqTitleSlash{from{opacity:0;transform:translateX(-22px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
     @keyframes fqCardDeal{from{opacity:0;transform:translateY(18px) scale(.975)}to{opacity:1;transform:none}}
     .fitquest-score-chart.animate .line{stroke-dasharray:1000;stroke-dashoffset:1000;animation:fqDrawGraph 1.35s cubic-bezier(.2,.75,.2,1) forwards}
@@ -62,12 +62,11 @@ function styles() {
     @keyframes fqDrawGraph{to{stroke-dashoffset:0}}@keyframes fqGraphGlow{from{opacity:0}to{opacity:1}}@keyframes fqPointPop{from{transform:scale(0)}to{transform:scale(1)}}
     .stat strong,.fitquest-score-number,#levelValue{display:inline-block;transition:transform .2s,color .2s}.fq-value-pop{animation:fqValuePop .42s cubic-bezier(.2,.9,.2,1.4)}
     @keyframes fqValuePop{50%{transform:scale(1.18);color:#82f4bd;text-shadow:0 0 15px #44d7b666}}
-    #fitquestSoundToggle{position:fixed;right:96px;top:calc(max(12px, env(safe-area-inset-top,0px)) + 9px);bottom:auto;z-index:9988;width:40px;height:40px;border-radius:13px;border:1px solid rgba(255,255,255,.12);background:rgba(8,14,29,.88);color:#dbe2f5;backdrop-filter:blur(14px);box-shadow:0 12px 32px #0006;cursor:pointer;font-size:16px;transition:.2s}
+    #fitquestSoundToggle{flex:none;width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(8,14,29,.88);color:#dbe2f5;backdrop-filter:blur(14px);cursor:pointer;font-size:16px;transition:.2s}
     #fitquestSoundToggle:hover{transform:scale(1.08) rotate(-5deg);border-color:#8b7cff88}
     .primary,.ghost,.new-workout,.fitquest-boss-strike,.finish-adventure-btn,.end-adventure-btn{position:relative;overflow:hidden;transition:transform .16s,filter .16s,box-shadow .16s}
     .primary:active,.ghost:active,.new-workout:active,.fitquest-boss-strike:active,.finish-adventure-btn:active,.end-adventure-btn:active{transform:scale(.96);filter:brightness(1.2)}
-    @media(min-width:721px){#fitquestSoundToggle{right:18px;top:auto;bottom:18px}}
-    @media(prefers-reduced-motion:reduce){body::after,.fitquest-screen.active>*,.fitquest-score-chart *{animation:none!important}.card,.history-day{transition:none!important}}
+    @media(prefers-reduced-motion:reduce){body::after,.fitquest-screen,.fitquest-screen.active>*,.fitquest-screen-grid>*,.fq-value-pop,.fitquest-score-chart *{animation:none!important}.fitquest-score-chart .line{stroke-dashoffset:0!important}.card,.history-day{transition:none!important}}
   `);
 }
 
@@ -97,7 +96,8 @@ function navSparks(button) {
 }
 
 function installSoundToggle() {
-  if ($('#fitquestSoundToggle')) return;
+  const level = $('#levelChip');
+  if (!level || $('#fitquestSoundToggle')) return;
   const button = document.createElement('button');
   button.id = 'fitquestSoundToggle';
   button.type = 'button';
@@ -113,10 +113,8 @@ function installSoundToggle() {
     button.setAttribute('aria-label', button.title);
     if (!muted) sound('success');
   });
-  // Sit in the header beside the level badge; fall back to floating if it's missing.
-  const level = $('#levelChip');
-  if (level) level.insertAdjacentElement('beforebegin', button);
-  else document.body.appendChild(button);
+  // The button sits in the header beside the level badge.
+  level.insertAdjacentElement('beforebegin', button);
 }
 
 function staggerCards() {
@@ -180,8 +178,4 @@ function boot() {
   staggerCards();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
-}
+boot();

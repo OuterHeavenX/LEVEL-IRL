@@ -1,41 +1,17 @@
-import './navigation.js';
-import './dailyActivity.js';
 import { readSave, writeSave } from './lib/storage.js';
 import { workoutBattlePower, completedStreakAsOf } from './lib/progression.js';
-import { $, localDateISO, injectStyles, appVisible, whenReady } from './lib/dom.js';
-
-
-const BOSSES = [
-  { id:'iron-warden-v1', name:'The Iron Warden', title:'Gatekeeper of the First Forge', icon:'🛡️', maxHp:600, rewardXp:100, loot:{ id:'iron-warden-sigil', name:'Sigil of the First Forge', icon:'🔱', rarity:'Rare', description:'Proof that the First Forge has fallen.' } },
-  { id:'marsh-hydra-v1', name:'The Marsh Hydra', title:'Many-Headed Terror of the Lowlands', icon:'🐲', maxHp:850, rewardXp:150, loot:{ id:'hydra-heart', name:'Hydra Heart', icon:'💚', rarity:'Epic', description:'A living ember of relentless endurance.' } },
-  { id:'storm-colossus-v1', name:'The Storm Colossus', title:'Titan Above the Thunder Pass', icon:'⚡', maxHp:1150, rewardXp:225, loot:{ id:'storm-core', name:'Storm Core', icon:'💠', rarity:'Epic', description:'Power drawn from every step forward.' } },
-  { id:'void-champion-v1', name:'The Void Champion', title:'Final Rival of the First Campaign', icon:'🗡️', maxHp:1500, rewardXp:350, loot:{ id:'void-crown', name:'Crown of Resolve', icon:'👑', rarity:'Legendary', description:'The mark of an unbreakable adventurer.' } }
-];
+import { BOSSES, campaignCleared, activityDamage, appliedActivityDamage, readyBossDamage } from './lib/bosses.js';
+import { $, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 let BOSS = BOSSES[0];
 
 let busy = false;
 let strikeBusy = false;
 
-
 function styles() {
   injectStyles('fitquestBossStyles', `
     .fitquest-boss-card {
-      margin: 22px 0;
-      padding: 24px;
-      border-radius: 24px;
-      border: 1px solid rgba(255,112,112,.18);
-      background:
-        radial-gradient(circle at 80% 0%,rgba(255,91,91,.13),transparent 38%),
-        linear-gradient(145deg,rgba(21,28,52,.97),rgba(11,17,34,.97));
       color: #f6f8ff;
-    }
-
-    .fitquest-boss-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 18px;
-      margin-bottom: 18px;
     }
 
     .fitquest-boss-heading {
@@ -55,31 +31,13 @@ function styles() {
       border: 1px solid rgba(255,255,255,.09);
     }
 
-    .fitquest-boss-eyebrow {
-      margin: 0 0 5px;
-      color: #ff9a9a;
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: .16em;
-    }
-
-    .fitquest-boss-heading h3 {
-      margin: 0;
-      font-size: 23px;
-    }
-
     .fitquest-boss-heading small {
       color: #8f9bb5;
     }
 
     .fitquest-boss-status {
-      padding: 8px 11px;
-      border-radius: 999px;
       background: rgba(255,255,255,.05);
       color: #ffb1b1;
-      font-size: 11px;
-      font-weight: 900;
-      white-space: nowrap;
     }
 
     .fitquest-boss-hp-row {
@@ -107,7 +65,6 @@ function styles() {
 
     .fitquest-boss-grid {
       display: grid;
-      grid-template-columns: repeat(3,1fr);
       gap: 10px;
       margin-top: 16px;
     }
@@ -177,20 +134,8 @@ function styles() {
       color: #d9c6ff;
     }
 
-    .fitquest-boss-flash {
-      animation: fqhit .6s ease;
-    }
-
-    @keyframes fqhit {
-      20% { transform: translateX(-5px); }
-      40% { transform: translateX(5px); }
-      60% { transform: translateX(-3px); }
-      80% { transform: translateX(3px); }
-    }
-
     @media(max-width:700px) {
       .fitquest-boss-head { flex-direction: column; }
-      .fitquest-boss-grid { grid-template-columns: 1fr; }
     }
   `);
 }
@@ -224,25 +169,6 @@ function ensureBoss(data) {
   return boss;
 }
 
-function sliceDamage(exercises = [], streak = 0) {
-  return workoutBattlePower(exercises, streak);
-}
-
-function activityDamage(checkIn) {
-  if (!checkIn) return 0;
-
-  return Math.max(
-    0,
-    Math.min(
-      60,
-      Math.floor((Number(checkIn.steps) || 0) / 1000) * 2 +
-      Math.floor((Number(checkIn.activeCalories) || 0) / 100) * 2 +
-      Math.floor((Number(checkIn.exerciseMinutes) || 0) / 15) * 3 +
-      ((Number(checkIn.standHours) || 0) >= 10 ? 5 : 0)
-    )
-  );
-}
-
 function strike(boss, { id, date, damage, at, source }) {
   const before = boss.hp;
   const after = Math.max(0, before - damage);
@@ -261,7 +187,7 @@ function strike(boss, { id, date, damage, at, source }) {
   boss.attacks.push(attack);
   boss.lastAttack = attack;
 
-  return after === 0 && !boss.defeated;
+  return after === 0;
 }
 
 function grantVictory(data, boss, at) {
@@ -271,7 +197,7 @@ function grantVictory(data, boss, at) {
   data.ui.rpg.bossVictoryXp =
     (Number(data.ui.rpg.bossVictoryXp) || 0) + BOSS.rewardXp;
 
-  if (!data.ui.rpg.inventory.some(item => item.id === BOSS.loot.id)) {
+  if (!data.ui.rpg.inventory.some(item => item?.id === BOSS.loot.id)) {
     data.ui.rpg.inventory.push({
       ...BOSS.loot,
       earnedAt: at,
@@ -282,12 +208,13 @@ function grantVictory(data, boss, at) {
 
 function applyPending(data) {
   const boss = ensureBoss(data);
+  const cleared = campaignCleared(data);
 
   let changed = false;
   let last = null;
 
   for (const workout of (data.workouts || [])) {
-    if (boss.defeated) break;
+    if (boss.defeated && !cleared) break;
 
     const exercises = Array.isArray(workout.exercises)
       ? workout.exercises
@@ -296,8 +223,7 @@ function applyPending(data) {
     const submitted =
       Math.max(0, Number(workout.bossSubmittedExerciseCount) || 0);
 
-    // Migration/failsafe:
-    // An Adventure that is already ended must never retain orphaned damage.
+    // An ended Adventure always sends every move it holds.
     const requestedRaw = workout.completed
       ? exercises.length
       : Math.max(
@@ -310,8 +236,16 @@ function applyPending(data) {
 
     if (requested <= submitted) continue;
 
+    // With every boss down there is nothing left to hit, so the request is used up.
+    if (cleared) {
+      workout.bossSubmittedExerciseCount = requested;
+      workout.bossStrikeRequestedCount = requested;
+      changed = true;
+      continue;
+    }
+
     const chunk = exercises.slice(submitted, requested);
-    const damage = sliceDamage(chunk, completedStreakAsOf(data, workout.date));
+    const damage = workoutBattlePower(chunk, completedStreakAsOf(data, workout.date));
     const at =
       workout.bossStrikeRequestedAt ||
       workout.completedAt ||
@@ -329,8 +263,6 @@ function applyPending(data) {
 
     workout.bossSubmittedExerciseCount = requested;
     workout.bossStrikeRequestedCount = requested;
-    workout.bossLastStrikeDamage = damage;
-    workout.bossLastStrikeAt = at;
 
     changed = true;
     last = boss.lastAttack;
@@ -344,17 +276,10 @@ function applyPending(data) {
 
   // Activity only lands when the player presses FIELD STRIKE.
   for (const checkIn of (data.checkIns || [])) {
-    if (boss.defeated) break;
+    if (boss.defeated && !cleared) break;
 
     const total = activityDamage(checkIn);
-
-    // Support data previously auto-applied by v2.
-    const applied = Math.max(
-      0,
-      Number(checkIn.bossActivityDamageApplied) ||
-      Number(checkIn.bossActivityApplied?.damage) ||
-      0
-    );
+    const applied = appliedActivityDamage(checkIn);
 
     const requested = Math.max(
       applied,
@@ -367,6 +292,12 @@ function applyPending(data) {
     const delta = Math.max(0, requested - applied);
 
     if (delta <= 0) continue;
+
+    if (cleared) {
+      checkIn.bossActivityDamageApplied = requested;
+      changed = true;
+      continue;
+    }
 
     const at =
       checkIn.bossActivityStrikeRequestedAt ||
@@ -401,93 +332,15 @@ function applyPending(data) {
   return { boss, changed, last };
 }
 
-function readyDamage(data) {
-  const today = localDateISO();
-
-  const workout =
-    (data.workouts || []).find(item => item.date === today);
-
-  const exercises =
-    Array.isArray(workout?.exercises)
-      ? workout.exercises
-      : [];
-
-  const submitted =
-    Math.max(0, Number(workout?.bossSubmittedExerciseCount) || 0);
-
-  const move =
-    sliceDamage(
-      exercises.slice(submitted),
-      completedStreakAsOf(data, today)
-    );
-
-  const checkIn =
-    (data.checkIns || []).find(item => item.date === today);
-
-  const totalActivity =
-    activityDamage(checkIn);
-
-  const appliedActivity =
-    Math.max(
-      0,
-      Number(checkIn?.bossActivityDamageApplied) ||
-      Number(checkIn?.bossActivityApplied?.damage) ||
-      0
-    );
-
-  return {
-    move,
-    activity: Math.max(0, totalActivity - appliedActivity),
-    workout,
-    checkIn,
-    totalActivity
-  };
-}
-
-async function requestWorkoutStrike() {
-  if (strikeBusy) return;
-  strikeBusy = true;
-
-  try {
-    const data = (await readSave())?.save;
-    if (!data) throw new Error('No save is available.');
-
-    const ready = readyDamage(data);
-    const workout = ready.workout;
-
-    if (!workout || ready.move <= 0) {
-      throw new Error('No workout damage is ready.');
-    }
-
-    workout.bossStrikeRequestedCount =
-      Array.isArray(workout.exercises)
-        ? workout.exercises.length
-        : 0;
-
-    workout.bossStrikeRequestedAt =
-      new Date().toISOString();
-
-    const ok = await writeSave(data);
-    if (!ok) throw new Error('LEVEL IRL could not submit this strike.');
-
-    await refresh();
-
-  } catch (error) {
-    window.alert(error?.message || 'Unable to strike the boss.');
-  } finally {
-    strikeBusy = false;
-  }
-}
-
 async function requestActivityStrike() {
   if (strikeBusy) return;
   strikeBusy = true;
 
   try {
-    const data = (await readSave())?.save;
+    const data = readSave();
     if (!data) throw new Error('No save is available.');
 
-    const ready = readyDamage(data);
+    const ready = readyBossDamage(data);
     const checkIn = ready.checkIn;
 
     if (!checkIn || ready.activity <= 0) {
@@ -500,24 +353,19 @@ async function requestActivityStrike() {
     checkIn.bossActivityStrikeRequestedAt =
       new Date().toISOString();
 
-    const ok = await writeSave(data);
-    if (!ok) throw new Error('LEVEL IRL could not submit this field strike.');
+    if (!writeSave(data)) throw new Error('LEVEL IRL could not submit this field strike.');
 
     await refresh();
 
   } catch (error) {
     window.alert(error?.message || 'Unable to submit field strike.');
+    void refresh();
   } finally {
     strikeBusy = false;
   }
 }
 
 function wireStrikeButtons() {
-  $('#fitquestBossWorkoutStrike')?.addEventListener(
-    'click',
-    requestWorkoutStrike
-  );
-
   $('#fitquestBossActivityStrike')?.addEventListener(
     'click',
     requestActivityStrike
@@ -536,12 +384,8 @@ function render(data) {
     lastCardHtml = '';
     card = document.createElement('section');
     card.id = 'fitquestBossBattle';
-    card.className = 'fitquest-boss-card';
+    card.className = 'card fitquest-boss-card';
     grid.insertAdjacentElement('afterend', card);
-
-    window.dispatchEvent(
-      new CustomEvent('fitquest:boss-ready')
-    );
   }
 
   const boss = ensureBoss(data);
@@ -557,29 +401,30 @@ function render(data) {
       0
     );
 
-  const ready = readyDamage(data);
+  const ready = readyBossDamage(data);
 
+  const lastDamage = Math.round(Number(boss.lastAttack?.damage) || 0);
   const lastHit =
-    boss.lastAttack?.damage
-      ? `${boss.lastAttack.damage} damage · ${
+    lastDamage
+      ? `${lastDamage} damage · ${
           boss.lastAttack.source === 'activity'
             ? '⌚ Activity'
             : '⚔️ Adventure'
         }`
       : 'No strikes yet';
 
-  const loot =
-    data.ui.rpg.inventory.find(
-      item => item.id === BOSS.loot.id
+  const looted =
+    data.ui.rpg.inventory.some(
+      item => item?.id === BOSS.loot.id
     );
 
   const html = `
-    <div class="fitquest-boss-head">
+    <div class="section-heading fitquest-boss-head">
       <div class="fitquest-boss-heading">
         <div class="fitquest-boss-icon">${BOSS.icon}</div>
 
         <div>
-          <p class="fitquest-boss-eyebrow">
+          <p class="eyebrow">
             CAMPAIGN BOSS ${BOSSES.findIndex(item => item.id === BOSS.id) + 1} / ${BOSSES.length}
           </p>
 
@@ -588,7 +433,7 @@ function render(data) {
         </div>
       </div>
 
-      <span class="fitquest-boss-status">
+      <span class="pill fitquest-boss-status">
         ${boss.defeated ? '✓ DEFEATED' : '⚔️ ACTIVE BATTLE'}
       </span>
     </div>
@@ -620,36 +465,16 @@ function render(data) {
     </div>
 
     ${
-      !boss.defeated && (ready.move > 0 || ready.activity > 0)
+      !boss.defeated && ready.activity > 0
         ? `
           <div class="fitquest-boss-actions">
-            ${
-              ready.move > 0
-                ? `
-                  <button
-                    id="fitquestBossWorkoutStrike"
-                    class="fitquest-boss-strike"
-                    type="button"
-                  >
-                    ⚔️ STRIKE BOSS · ${ready.move} DAMAGE
-                  </button>
-                `
-                : ''
-            }
-
-            ${
-              ready.activity > 0
-                ? `
-                  <button
-                    id="fitquestBossActivityStrike"
-                    class="fitquest-boss-strike activity"
-                    type="button"
-                  >
-                    ⌚ FIELD STRIKE · ${ready.activity} DAMAGE
-                  </button>
-                `
-                : ''
-            }
+            <button
+              id="fitquestBossActivityStrike"
+              class="fitquest-boss-strike activity"
+              type="button"
+            >
+              ⌚ FIELD STRIKE · ${ready.activity} DAMAGE
+            </button>
           </div>
         `
         : ''
@@ -658,17 +483,15 @@ function render(data) {
     <p class="fitquest-boss-callout">
       ${
         boss.defeated
-          ? BOSS.id === BOSSES[BOSSES.length - 1].id
-            ? 'Campaign cleared. Your next chapter is waiting.'
-            : 'Victory secured. The next boss will appear automatically.'
+          ? 'Campaign cleared. Your next chapter is waiting.'
           : 'Log moves all day, then strike whenever you want. Saving new Apple Watch totals can charge a separate Field Strike.'
       }
     </p>
 
     <div class="fitquest-boss-loot">
       ${
-        loot
-          ? `${loot.icon} Victory Reward Earned: ${loot.name} + ${BOSS.rewardXp} XP`
+        looted
+          ? `${BOSS.loot.icon} Victory Reward Earned: ${BOSS.loot.name} + ${BOSS.rewardXp} XP`
           : `🔒 Victory Reward: ${BOSS.loot.name} + ${BOSS.rewardXp} XP`
       }
     </div>
@@ -686,27 +509,18 @@ async function refresh() {
   busy = true;
 
   try {
-    const data = (await readSave())?.save;
+    const data = readSave();
     if (!data) return;
 
     const result = applyPending(data);
 
     if (result.changed) {
-      await writeSave(data);
+      writeSave(data);
     }
 
     render(data);
 
     if (result.last) {
-      const card = $('#fitquestBossBattle');
-
-      card?.classList.add('fitquest-boss-flash');
-
-      setTimeout(
-        () => card?.classList.remove('fitquest-boss-flash'),
-        700
-      );
-
       window.dispatchEvent(
         new CustomEvent('fitquest:boss-hit', {
           detail: result.last
@@ -729,7 +543,6 @@ function boot() {
   }, 120);
 
   [
-    'fitquest:boss-strike-requested',
     'fitquest:remote-update',
     'fitquest:saved'
   ].forEach(name => {
@@ -749,12 +562,4 @@ function boot() {
   );
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener(
-    'DOMContentLoaded',
-    boot,
-    { once: true }
-  );
-} else {
-  boot();
-}
+boot();

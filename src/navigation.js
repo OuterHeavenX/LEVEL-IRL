@@ -1,9 +1,3 @@
-import './rpgExpansion.js';
-import './progressOverview.js';
-import './juiceEngine.js';
-import './superJuice.js';
-import './restCamp.js';
-import './characterProgression.js';
 import { $, $$, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 const SCREENS = [
@@ -16,7 +10,6 @@ const SCREENS = [
   { id: 'camp', label: 'Camp', icon: '🔥' }
 ];
 
-let observer = null;
 let arrangeTimer = null;
 
 function styles() {
@@ -119,13 +112,11 @@ function styles() {
 
     .fitquest-screen.active {
       display: grid;
-      gap: 22px;
     }
 
     .fitquest-screen-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 22px;
       width: 100%;
       min-width: 0;
       max-width: 100%;
@@ -143,16 +134,12 @@ function styles() {
       margin-bottom: 0 !important;
     }
 
-    .fitquest-screen .fitquest-boss-card {
-      margin: 0 !important;
-    }
-
     .fitquest-screen-title {
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
       gap: 18px;
-      margin: 4px 2px -4px;
+      margin: 4px 0 -4px;
     }
 
     .fitquest-screen-title p {
@@ -174,6 +161,7 @@ function styles() {
       color: #8793ac;
       line-height: 1.45;
       text-align: right;
+      text-wrap: balance;
     }
 
     .fitquest-screen-empty {
@@ -189,7 +177,7 @@ function styles() {
     }
 
     .fitquest-mobile-actions:empty {
-      display: none !important;
+      display: none;
     }
 
     @keyframes fqScreenIn {
@@ -219,23 +207,7 @@ function styles() {
       }
 
       .app-shell {
-        width: 100%;
-        max-width: 100%;
-        padding-top: calc(max(18px, env(safe-area-inset-top, 0px)) + 10px) !important;
-        padding-left: max(12px, env(safe-area-inset-left, 0px)) !important;
-        padding-right: max(12px, env(safe-area-inset-right, 0px)) !important;
         overflow-x: clip;
-      }
-
-      /* Compact native-app-style header */
-      .topbar {
-        min-height: 64px;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: space-between !important;
-        gap: 12px !important;
-        margin: 0 0 12px !important;
-        padding: 10px 2px 8px !important;
       }
 
       .topbar > div:first-child {
@@ -243,51 +215,28 @@ function styles() {
       }
 
       .topbar > div:first-child .eyebrow {
-        display: none !important;
+        display: none;
       }
 
       .topbar > div:first-child h1 {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 0 !important;
-        font-size: 25px !important;
-        line-height: 1 !important;
-        white-space: nowrap;
+        font-size: 25px;
+        line-height: 1;
       }
 
       .topbar .beta {
-        font-size: 9px !important;
-        padding: 5px 7px !important;
+        font-size: 10px;
+        padding: 5px 7px;
       }
 
-      .header-actions {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        gap: 0 !important;
-        margin: 0 !important;
-        min-width: auto !important;
-      }
-
-      /* Hide global utilities on mobile. Their replacements live in tabs. */
-      .header-actions #opsStatus,
+      /* The tabs carry their own New Adventure buttons on phones. */
       .header-actions #newWorkoutBtn {
-        display: none !important;
-      }
-
-      .header-actions #levelChip {
-        display: inline-flex !important;
-        min-width: 70px !important;
-        min-height: 48px !important;
-        padding: 8px 13px !important;
-        border-radius: 17px !important;
+        display: none;
       }
 
       #fitquestAppNav {
         position: fixed;
-        left: 10px;
-        right: 10px;
+        left: calc(10px + env(safe-area-inset-left, 0px));
+        right: calc(10px + env(safe-area-inset-right, 0px));
         bottom: calc(8px + env(safe-area-inset-bottom, 0px));
         top: auto;
         z-index: 9990;
@@ -311,25 +260,20 @@ function styles() {
         font-size: 20px;
       }
 
-      .fitquest-nav-btn.active { min-width: 62px; }
-      .fitquest-nav-btn.active > span:last-child { display:block;font-size:8px;line-height:1;animation:fqLabelIn .25s ease both; }
+      .fitquest-nav-btn.active > span:last-child { display:block;font-size:10px;line-height:1;animation:fqLabelIn .25s ease both; }
       @keyframes fqLabelIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
 
       #fitquestScreenHost {
         min-height: 72vh;
       }
 
-      .fitquest-screen.active {
-        gap: 16px;
-      }
-
       .fitquest-screen-title {
         gap: 3px;
-        margin: 0 2px -2px;
+        margin: 0 0 -2px;
       }
 
       .fitquest-screen-title p {
-        font-size: 9px;
+        font-size: 10px;
       }
 
       .fitquest-screen-title h2 {
@@ -345,16 +289,13 @@ function styles() {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         align-items: stretch;
-        gap: 9px;
         margin-top: 3px;
       }
 
       .fitquest-mobile-action {
         width: 100%;
-        height: 64px;
-        min-height: 64px;
-        margin: 0 !important;
-        padding: 0 14px !important;
+        margin: 0;
+        padding: 0 14px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -364,7 +305,6 @@ function styles() {
         background: rgba(255,255,255,.045);
         color: #dce3f5;
         font: inherit;
-        font-size: 12px;
         font-weight: 850;
         cursor: pointer;
       }
@@ -379,28 +319,27 @@ function styles() {
           );
         color: #e8ffff;
       }
-
-      .fitquest-mobile-action.danger {
-        color: #ff9ca7;
-        border-color: rgba(255, 110, 120, .20);
-      }
     }
 
     @media (max-width: 420px) {
-      #fitquestAppNav {
-        left: 6px;
-        right: 6px;
-      }
-
-      #fitquestAppNav { overflow-x:auto;scrollbar-width:none; }
+      #fitquestAppNav { left:6px;right:6px;overflow-x:auto;scrollbar-width:none; }
       #fitquestAppNav::-webkit-scrollbar{display:none}
 
       .topbar > div:first-child h1 {
-        font-size: 23px !important;
+        font-size: 23px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .fitquest-nav-btn.active::after,
+      .fitquest-nav-btn.active .fitquest-nav-icon,
+      .fitquest-nav-btn.active > span:last-child {
+        animation: none;
       }
 
-      .header-actions #levelChip {
-        min-width: 64px !important;
+      .fitquest-nav-btn,
+      .fitquest-nav-icon {
+        transition: none;
       }
     }
   `);
@@ -411,7 +350,7 @@ function titleFor(id) {
     home: [
       'COMMAND CENTER',
       'Today',
-      'Your current quest, boss battle, recovery intel, and daily objectives.'
+      'Your current adventure, boss battle, recovery intel, and daily objectives.'
     ],
     training: [
       'TRAINING HALL',
@@ -426,17 +365,17 @@ function titleFor(id) {
     activity: [
       'FIELD ACTIVITY',
       'Activity',
-      'Enter Apple Watch totals and turn everyday movement into campaign progress.'
+      'Turn everyday movement into boss damage and campaign progress.'
     ],
     progress: [
       'CAMPAIGN ARCHIVE',
       'Progress',
-      'Weekly maps, achievements, distance milestones, and your Chronicle.'
+      'Overall progress, weekly maps, achievements, distance milestones, and campaign systems.'
     ],
     character: [
       'PLAYER DOSSIER',
       'Character',
-      'Identity, permanent stats, and the future home of classes, loot, and skill trees.'
+      'Identity, permanent stats, classes, titles, skill paths, and your relic vault.'
     ],
     camp: [
       'REST CAMP',
@@ -619,18 +558,10 @@ function arrange() {
   moveIfPresent($('.achievement-panel'), progress);
   moveIfPresent($('.atlas-card'), progress);
   moveIfPresent($('.mission-dossier'), progress);
-  moveIfPresent($('.chronicle'), progress);
 
   findOriginalTwoCols().forEach(wrapper => {
     if (!wrapper.children.length) wrapper.remove();
   });
-
-  if (
-    $('#fitquestBossBattle') &&
-    $('#fitquestBossBattle').parentElement !== home
-  ) {
-    home.appendChild($('#fitquestBossBattle'));
-  }
 
   if (activity && !activity.querySelector('#fitquestDailyActivity')) {
     if (!activity.querySelector('.fitquest-screen-empty')) {
@@ -648,7 +579,6 @@ function arrange() {
 
 function showScreen(id, options = {}) {
   if (!SCREENS.some(screen => screen.id === id)) id = 'home';
-
 
   $$('.fitquest-screen').forEach(screen => {
     const active = screen.dataset.fitquestScreen === id;
@@ -707,41 +637,12 @@ function boot() {
 
     showScreen(saved, { noScroll: true });
 
-    observer = new MutationObserver(scheduleArrange);
-
-    observer.observe($('#appRoot'), {
+    new MutationObserver(scheduleArrange).observe($('#appRoot'), {
       childList: true,
       subtree: true,
       characterData: true
     });
-
-    window.addEventListener(
-      'fitquest:activity-ready',
-      scheduleArrange
-    );
-
-    window.addEventListener(
-      'fitquest:boss-ready',
-      scheduleArrange
-    );
-
-    window.addEventListener(
-      'fitquest:history-ready',
-      scheduleArrange
-    );
   }, 120);
 }
 
-export function navigateFitQuest(screen) {
-  showScreen(screen);
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener(
-    'DOMContentLoaded',
-    boot,
-    { once: true }
-  );
-} else {
-  boot();
-}
+boot();

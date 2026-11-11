@@ -1,19 +1,24 @@
-import { localDateISO, addDays } from './dom.js';
+import { localDateISO, addDays, dateFromISO } from './dom.js';
+
+export const XP_PER_LEVEL = 500;
+
+// Strength sets, cardio minutes and exercise XP for a list of exercises.
+export function exerciseTotals(exercises = []) {
+  let strengthSets = 0, cardio = 0, xp = 0;
+  for (const e of exercises) {
+    if (!e) continue;
+    if (e.type === 'strength') strengthSets += Number(e.sets) || 0;
+    if (e.type === 'cardio') cardio += Number(e.duration) || 0;
+    xp += Number(e.xp) || 0;
+  }
+  return { strengthSets, cardio, xp };
+}
 
 export function calculateStats(data) {
   const workouts = data.workouts || [];
   const exercises = workouts.flatMap(w => w.exercises || []);
 
-  const strengthSets = exercises
-    .filter(e => e.type === 'strength')
-    .reduce((n, e) => n + (Number(e.sets) || 0), 0);
-
-  const cardio = exercises
-    .filter(e => e.type === 'cardio')
-    .reduce((n, e) => n + (Number(e.duration) || 0), 0);
-
-  const exerciseXp = exercises
-    .reduce((n, e) => n + (Number(e.xp) || 0), 0);
+  const { strengthSets, cardio, xp: exerciseXp } = exerciseTotals(exercises);
 
   const nutritionXp = (data.nutrition || [])
     .reduce((n, e) => n + (Number(e.xp) || 0), 0);
@@ -46,8 +51,8 @@ export function calculateStats(data) {
     ? streakEndingAt(distinctDates)
     : 0;
   const bestStreak = longestStreak(distinctDates);
-  const level = Math.floor(xp / 500) + 1;
-  const levelXp = xp % 500;
+  const level = Math.floor(xp / XP_PER_LEVEL) + 1;
+  const levelXp = xp % XP_PER_LEVEL;
 
   return {
     workouts: distinctDates.length,
@@ -64,10 +69,10 @@ export function calculateStats(data) {
 }
 
 const dayGap = (later, earlier) =>
-  Math.round((new Date(`${later}T12:00:00`) - new Date(`${earlier}T12:00:00`)) / 86400000);
+  Math.round((dateFromISO(later) - dateFromISO(earlier)) / 86400000);
 
 // Consecutive days ending at the last date in a sorted list of YYYY-MM-DD strings.
-export function streakEndingAt(sortedDates) {
+function streakEndingAt(sortedDates) {
   if (!sortedDates.length) return 0;
   let streak = 1;
   for (let i = sortedDates.length - 1; i > 0; i--) {
@@ -86,21 +91,21 @@ function longestStreak(sortedDates) {
   return best;
 }
 
-// Streak of completed adventures up to and including `date` (used for boss damage).
+// Streak of completed adventures ending on `date` or the day before (used for
+// boss damage). An older run that has since lapsed counts as no streak.
 export function completedStreakAsOf(data, date) {
   const dates = [...new Set(
     (data.workouts || [])
       .filter(w => w.completed && w.date && w.date <= date)
       .map(w => w.date)
   )].sort();
-  return streakEndingAt(dates);
+  const last = dates.at(-1);
+  return last && last >= addDays(date, -1) ? streakEndingAt(dates) : 0;
 }
 
 /*
   FAIR XP ECONOMY
-  ----------------
-  Strength XP now scales primarily with sets instead of giving a huge
-  flat reward for merely creating an exercise entry.
+  Strength XP scales mainly with sets rather than a flat per-entry reward.
 
   Examples:
     1 set  = 15 XP
@@ -145,10 +150,7 @@ export function nextExerciseXP(
 
 /*
   BATTLE POWER
-  ------------
-  Boss damage uses actual work volume. Reps matter here because the
-  exercise record contains them, even though the older XP function API
-  only receives sets.
+  Boss damage uses actual work volume, including reps from the exercise record.
 
   Strength examples at 12 reps/set:
     1 x 12 ≈ 14 damage
@@ -159,7 +161,7 @@ export function nextExerciseXP(
   players from gaining extra damage simply by splitting one workout into
   lots of tiny submissions.
 */
-export function exerciseBattlePower(exercise = {}) {
+function exerciseBattlePower(exercise = {}) {
   if (exercise.type === 'cardio') {
     const minutes = Math.max(0, Number(exercise.duration) || 0);
     const distance = Math.max(0, Number(exercise.distance) || 0);
