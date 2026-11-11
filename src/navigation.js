@@ -194,6 +194,10 @@ function styles() {
       display: none;
     }
 
+    .fitquest-mobile-actions:empty {
+      display: none !important;
+    }
+
     @keyframes fqScreenIn {
       from { opacity: 0; transform: translateY(4px); }
       to { opacity: 1; transform: translateY(0); }
@@ -274,11 +278,7 @@ function styles() {
 
       /* Hide global utilities on mobile. Their replacements live in tabs. */
       .header-actions #opsStatus,
-      .header-actions #newWorkoutBtn,
-      .header-actions #verificationChip,
-      .header-actions #accountBtn,
-      .header-actions #logoutBtn,
-      .header-actions #fitquestSyncChip {
+      .header-actions #newWorkoutBtn {
         display: none !important;
       }
 
@@ -390,11 +390,6 @@ function styles() {
         color: #ff9ca7;
         border-color: rgba(255, 110, 120, .20);
       }
-
-      /* Once verified, keep the success state in Account instead of wasting Home space. */
-      #verificationBanner.fitquest-verified-complete {
-        display: none !important;
-      }
     }
 
     @media (max-width: 420px) {
@@ -429,7 +424,7 @@ function titleFor(id) {
     training: [
       'TRAINING HALL',
       'Training',
-      'Log moves, use your Exercise Codex, and review your cloud workout history.'
+      'Log moves, use your Exercise Codex, and review your workout history.'
     ],
     nutrition: [
       'PROVISIONS',
@@ -549,7 +544,6 @@ function mobileActionButton({
 function installMobileActions() {
   const home = $('#fitquestMobileActions-home');
   const training = $('#fitquestMobileActions-training');
-  const character = $('#fitquestMobileActions-character');
 
   if (home && !home.children.length) {
     home.appendChild(
@@ -557,13 +551,6 @@ function installMobileActions() {
         label: '⚔️ New Adventure',
         className: 'is-primary',
         onClick: () => $('#newWorkoutBtn')?.click()
-      })
-    );
-
-    home.appendChild(
-      mobileActionButton({
-        label: '👤 Account',
-        onClick: () => $('#accountBtn')?.click()
       })
     );
   }
@@ -581,24 +568,6 @@ function installMobileActions() {
       mobileActionButton({
         label: '＋ Exercise',
         onClick: () => $('#addExerciseBtn')?.click()
-      })
-    );
-  }
-
-  if (character && !character.children.length) {
-    character.appendChild(
-      mobileActionButton({
-        label: '👤 Account & Security',
-        className: 'is-primary',
-        onClick: () => $('#accountBtn')?.click()
-      })
-    );
-
-    character.appendChild(
-      mobileActionButton({
-        label: 'Sign Out',
-        className: 'danger',
-        onClick: () => $('#logoutBtn')?.click()
       })
     );
   }
@@ -620,19 +589,6 @@ function findOriginalTwoCols() {
   )];
 }
 
-function updateVerificationPresentation() {
-  const banner = $('#verificationBanner');
-  if (!banner) return;
-
-  const message = String(banner.textContent || '').trim().toLowerCase();
-  const verified =
-    message.includes('email is verified') ||
-    message.includes('email verified') ||
-    message.includes('verified successfully');
-
-  banner.classList.toggle('fitquest-verified-complete', verified);
-}
-
 function arrange() {
   if (!$('#fitquestScreenHost')) return;
 
@@ -645,7 +601,6 @@ function arrange() {
 
   // Home
   moveIfPresent($('.hero.card'), home);
-  moveIfPresent($('#verificationBanner'), home);
   moveIfPresent($('.stats-grid'), home);
   moveIfPresent($('#fitquestBossBattle'), home);
   moveIfPresent($('.quest-card'), home);
@@ -697,7 +652,6 @@ function arrange() {
   }
 
   installMobileActions();
-  updateVerificationPresentation();
 }
 
 function showScreen(id, options = {}) {

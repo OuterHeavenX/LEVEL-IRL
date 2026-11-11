@@ -1,5 +1,3 @@
-import fitQuestWorker from './worker.js';
-
 const YV_BASE = 'https://api.youversion.com/v1';
 const DEFAULT_BIBLE_ID = 3034; // Berean Standard Bible (fallback)
 
@@ -11,46 +9,6 @@ function json(data, status = 200, headers = {}) {
       ...headers
     }
   });
-}
-
-function cookies(request) {
-  const out = {};
-  for (const part of (request.headers.get('Cookie') || '').split(';')) {
-    const i = part.indexOf('=');
-    if (i > -1) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
-  }
-  return out;
-}
-
-function hex(bytes) {
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function tokenHash(token) {
-  return hex(new Uint8Array(
-    await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(token)
-    )
-  ));
-}
-
-async function isAuthenticated(request, env) {
-  const raw = cookies(request).fitquest_session;
-  if (!raw || !env.DB) return false;
-
-  const row = await env.DB.prepare(`
-    SELECT users.id
-    FROM sessions
-    JOIN users ON users.id = sessions.user_id
-    WHERE sessions.token = ?
-      AND sessions.expires_at > CURRENT_TIMESTAMP
-    LIMIT 1
-  `)
-    .bind(await tokenHash(raw))
-    .first();
-
-  return Boolean(row?.id);
 }
 
 function yvHeaders(env) {
@@ -168,10 +126,6 @@ async function passage(env, bibleId, passageId) {
 }
 
 async function verseOfDay(request, env) {
-  if (!await isAuthenticated(request, env)) {
-    return json({ ok: false, error: 'Not authenticated.' }, 401);
-  }
-
   const day = dayOfYear();
   const selection = await yvFetch(env, `/verse_of_the_days/${day}`);
 
@@ -204,10 +158,6 @@ async function verseOfDay(request, env) {
 }
 
 async function chapter(request, env, url) {
-  if (!await isAuthenticated(request, env)) {
-    return json({ ok: false, error: 'Not authenticated.' }, 401);
-  }
-
   const chapterId = String(url.searchParams.get('id') || '')
     .trim()
     .toUpperCase();
@@ -275,6 +225,6 @@ export default {
       );
     }
 
-    return fitQuestWorker.fetch(request, env, ctx);
+    return env.ASSETS.fetch(request);
   }
 };

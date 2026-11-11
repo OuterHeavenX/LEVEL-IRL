@@ -45,6 +45,10 @@ level-irl-vite/
         └── storage.js
 ```
 
+## Saving
+
+LEVEL IRL has no accounts or login. Progress is saved in the browser's localStorage on the device you play on; use the Workout History **Backup** button to download a copy.
+
 ## Save compatibility
 
 LEVEL IRL intentionally preserves the legacy localStorage key (`fitquest-save-v1`). Running this version on the same origin/host preserves compatible saves created before the product rename.

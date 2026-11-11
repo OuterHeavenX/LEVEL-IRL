@@ -3,7 +3,6 @@ const SHADOW_KEY = 'fitquest-save-shadow-v2';
 const BACKUP_KEY = 'fitquest-save-backups-v2';
 const MAX_BACKUPS = 8;
 const clone = value => JSON.parse(JSON.stringify(value));
-let lastCloudUpdatedAt = null;
 
 function readLocal(key) {
   try {
@@ -42,17 +41,7 @@ const DAY_2_DATE = '2026-08-01';
 const DAY_1_EXERCISES = ['treadmill','bicep curl','shoulder press','vertical row','seated leg curl','deltoid fly'];
 
 function notifySync(status, detail = {}) {
-  window.dispatchEvent(new CustomEvent('fitquest:sync', { detail: { status, updated_at: lastCloudUpdatedAt, ...detail } }));
-}
-function normalizeTimestamp(value) {
-  if (!value) return null;
-  const raw = String(value).trim();
-  if (raw.includes('T') || raw.endsWith('Z')) return raw;
-  return `${raw.replace(' ', 'T')}Z`;
-}
-function timestampMs(value) {
-  const ms = Date.parse(normalizeTimestamp(value) || '');
-  return Number.isFinite(ms) ? ms : 0;
+  window.dispatchEvent(new CustomEvent('fitquest:sync', { detail: { status, ...detail } }));
 }
 
 function recoverDay2Workout(data) {
@@ -134,93 +123,44 @@ export function mergeSave(saved, seed) {
   return merged;
 }
 
-async function fetchCloudSave() {
-  notifySync('loading');
-  const response = await fetch('/api/save', { method:'GET', credentials:'same-origin', cache:'no-store' });
-  if (response.status === 401) { notifySync('signed-out'); throw new Error('You are not signed in.'); }
-  const result = await response.json();
-  if (!response.ok || !result.ok) {
-    notifySync('error', { error: result.error || 'Unable to load cloud save.' });
-    throw new Error(result.error || 'Unable to load cloud save.');
-  }
-  lastCloudUpdatedAt = result.updated_at || null;
-  notifySync('synced');
-  return { save: result.save || null, updated_at: result.updated_at || null };
+function readStoredSave() {
+  // The shadow snapshot is written on every save, so it is always the newest
+  // copy. The legacy key is kept in step and used as a fallback.
+  return readLocal(SHADOW_KEY)?.data || readLocal(LEGACY_KEY);
 }
 
-async function sendCloudSave(data) {
-  notifySync('saving');
-  const response = await fetch('/api/save', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ save:data }) });
-  const result = await response.json();
-  if (!response.ok || !result.ok) {
-    notifySync('error', { error: result.error || 'Unable to save progress.' });
-    throw new Error(result.error || 'Unable to save progress.');
-  }
-  lastCloudUpdatedAt = result.updated_at || lastCloudUpdatedAt;
-  notifySync('synced');
-  return { ok:true, updated_at:lastCloudUpdatedAt };
-}
-
-export async function readCloudSave() { return fetchCloudSave(); }
-export function getLastCloudUpdatedAt() { return lastCloudUpdatedAt; }
-
-export async function checkCloudForNewer() {
-  try {
-    const response = await fetch('/api/save/meta', { method:'GET', credentials:'same-origin', cache:'no-store' });
-    if (response.status === 401) return { authenticated:false, newer:false };
-    const result = await response.json();
-    if (!response.ok || !result.ok) return { authenticated:true, newer:false };
-    const remote = result.updated_at || null;
-    const newer = timestampMs(remote) > timestampMs(lastCloudUpdatedAt);
-    if (newer) window.dispatchEvent(new CustomEvent('fitquest:remote-update', { detail:{ remote_updated_at:remote, local_updated_at:lastCloudUpdatedAt } }));
-    return { authenticated:true, newer, updated_at:remote };
-  } catch { return { authenticated:true, newer:false }; }
+export async function readSave() {
+  return { save: readStoredSave() };
 }
 
 export async function loadSave(seed) {
-  try {
-    const cloud = await fetchCloudSave();
-    if (cloud.save) {
-      const merged = mergeSave(cloud.save, seed);
-      saveLocalSnapshot(merged, 'cloud-load');
-      return merged;
-    }
-    const legacyText = localStorage.getItem(LEGACY_KEY);
-    if (legacyText) {
-      try {
-        const migrated = mergeSave(JSON.parse(legacyText), seed);
-        saveLocalSnapshot(migrated, 'legacy-migration');
-        await sendCloudSave(migrated);
-        // Keep the legacy record as an extra recovery source. It is intentionally
-        // not deleted until the user clears browser storage themselves.
-        return migrated;
-      } catch (error) { console.error('Legacy save migration failed:', error); }
-    }
-    const fresh = clone(seed);
-    saveLocalSnapshot(fresh, 'new-campaign');
-    return fresh;
-  } catch (error) {
-    console.error('Cloud load failed:', error);
-    const shadow = readLocal(SHADOW_KEY)?.data;
-    const legacy = readLocal(LEGACY_KEY);
-    const recovered = shadow || legacy;
-    if (recovered) {
-      notifySync('offline-recovery');
-      return mergeSave(recovered, seed);
-    }
-
-    // Do not return seed data after a transient cloud failure. That could make a
-    // real campaign look empty and later overwrite it when connectivity returns.
-    notifySync('error', { error: 'Cloud save unavailable; no local recovery copy found.' });
-    throw error;
+  const stored = readStoredSave();
+  if (stored) {
+    try { return mergeSave(stored, seed); }
+    catch (error) { console.error('Saved campaign could not be read:', error); }
   }
+  const fresh = clone(seed);
+  saveLocalSnapshot(fresh, 'new-campaign');
+  return fresh;
 }
 
 export async function writeSave(data) {
-  saveLocalSnapshot(data, 'autosave');
-  try { await sendCloudSave(data); return true; }
-  catch (error) { console.error('Cloud save failed:', error); return false; }
+  try {
+    saveLocalSnapshot(data, 'autosave');
+    localStorage.setItem(LEGACY_KEY, JSON.stringify(data));
+    notifySync('synced');
+    return true;
+  } catch (error) {
+    console.error('Save failed:', error);
+    notifySync('error', { error: error.message || String(error) });
+    return false;
+  }
 }
+
+// Keep other open tabs in step when one of them saves.
+window.addEventListener('storage', event => {
+  if (event.key === SHADOW_KEY) window.dispatchEvent(new CustomEvent('fitquest:remote-update'));
+});
 
 export function getLocalRecoveryInfo() {
   const shadow = readLocal(SHADOW_KEY);
@@ -228,7 +168,10 @@ export function getLocalRecoveryInfo() {
   return { savedAt: shadow?.savedAt || null, backupCount: backups.length };
 }
 
-export function resetSave() { localStorage.removeItem(LEGACY_KEY); }
+export function resetSave() {
+  localStorage.removeItem(LEGACY_KEY);
+  localStorage.removeItem(SHADOW_KEY);
+}
 export function slugify(text='') { return text.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || `exercise-${Date.now()}`; }
 export function dedupeLibrary(items=[]) {
   const seen = new Map();

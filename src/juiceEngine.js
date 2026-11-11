@@ -1,4 +1,4 @@
-import { readCloudSave, writeSave } from './lib/storage.js';
+import { readSave, writeSave } from './lib/storage.js';
 import { calculateStats, workoutBattlePower } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
 
@@ -1130,7 +1130,7 @@ async function compareNow() {
   compareBusy = true;
 
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
     if (!data) return;
 
@@ -1341,7 +1341,7 @@ function watchCompletionOverlay() {
 
 async function baseline() {
   try {
-    const cloud = await readCloudSave();
+    const cloud = await readSave();
     const data = cloud?.save;
 
     if (!data) return;
