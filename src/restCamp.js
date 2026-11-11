@@ -1,4 +1,4 @@
-import { $, escapeHtml } from './lib/dom.js';
+import { $, escapeHtml, injectStyles, whenReady } from './lib/dom.js';
 
 // Fetch JSON from the worker, surfacing its error message when a request fails.
 async function fetchJson(url) {
@@ -51,10 +51,7 @@ let state = {
 };
 
 function styles() {
-  if ($('#fitquestRestCampStyles')) return;
-  const s = document.createElement('style');
-  s.id = 'fitquestRestCampStyles';
-  s.textContent = `
+  injectStyles('fitquestRestCampStyles', `
     .fq-camp-card{width:100%;min-width:0;max-width:100%;overflow:hidden;padding:22px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:rgba(15,22,41,.94)}
     .fq-camp-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
     .fq-camp-head h3{margin:3px 0 0}.fq-camp-head p{margin:0;color:#8c98b2;font-size:11px;font-weight:900;letter-spacing:.13em}
@@ -74,8 +71,7 @@ function styles() {
     .fq-bible-btn.primary{border:0;background:linear-gradient(135deg,#676bff,#a954ec);color:white}.fq-bible-reader{max-height:55vh;overflow:auto;padding:16px;border-radius:16px;background:rgba(5,10,22,.55);color:#dce2ef;line-height:1.75;white-space:pre-wrap}
     .fq-attribution{font-size:9px;color:#68758e;line-height:1.4}
     @media(max-width:720px){.fq-answers{grid-template-columns:minmax(0,1fr)}.fq-camp-card{padding:16px}.fq-camp-head{min-width:0}.fq-camp-head>div{min-width:0}}
-  `;
-  document.head.appendChild(s);
+  `);
 }
 
 function categories() {
@@ -259,14 +255,9 @@ function renderCamp() {
 function boot() {
   styles();
 
-  let attempts = 0;
-  const timer = setInterval(() => {
-    attempts++;
-    if ($('#fitquestScreenGrid-camp')) {
-      clearInterval(timer);
-      renderCamp();
-    } else if (attempts > 140) clearInterval(timer);
-  }, 120);
+  whenReady(() => $('#fitquestScreenGrid-camp'), () => {
+    renderCamp();
+  });
 
   window.addEventListener('fitquest:navigation', event => {
     if (event.detail?.screen === 'camp') renderCamp();

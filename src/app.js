@@ -22,13 +22,15 @@ import {
   achievementSummary,
   sketchSVG
 } from './lib/achievements.js';
-import { $, $$, escapeHtml, localDateISO, weekdayName, toast } from './lib/dom.js';
+import { $, $$, escapeHtml, localDateISO, dateFromISO, addDays, weekdayName, toast } from './lib/dom.js';
 
 let state = null;
 let titleTapCount = 0;
 let appStarted = false;
 let suppressSave = false;
-let todayDraft = null;
+let draftWorkout = null;
+// A past date the player opened (null = today).
+let viewDate = null;
 
 const exerciseIcon = (name, type = 'strength', fallback = '') => {
   if (fallback && fallback !== '⚔️') return fallback;
@@ -65,8 +67,41 @@ function setInputValue(input, value) {
   if (input && input.dataset.dirty !== 'true') input.value = value;
 }
 
-function todaysWorkout() {
+const activeDate = () => viewDate || localDateISO();
+
+// Switch the screen to another day (or back to today) and tell other modules.
+function setViewDate(date) {
   const today = localDateISO();
+  viewDate = date && date !== today ? date : null;
+  draftWorkout = null;
+  document.documentElement.dataset.activeDate = activeDate();
+  render();
+  window.dispatchEvent(new CustomEvent('fitquest:active-date', { detail: { date: activeDate() } }));
+}
+
+function renderViewBanner() {
+  const hero = $('.hero.card');
+  if (!hero) return;
+  let banner = $('#viewDateBanner');
+  if (!viewDate) {
+    banner?.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'viewDateBanner';
+    banner.className = 'view-date-banner';
+    hero.prepend(banner);
+  }
+  banner.innerHTML = `
+    <span>📅 Viewing ${escapeHtml(formatDate(viewDate))}</span>
+    <button type="button" class="ghost mini" id="backToTodayBtn">Back to Today</button>
+  `;
+  $('#backToTodayBtn').addEventListener('click', () => setViewDate(null));
+}
+
+function activeWorkout() {
+  const today = activeDate();
 
   let workout =
     state.workouts.find(
@@ -79,7 +114,7 @@ function todaysWorkout() {
     const number =
       state.workouts.length + 1;
 
-    if (todayDraft?.date === today) return todayDraft;
+    if (draftWorkout?.date === today) return draftWorkout;
     workout = {
       id:
         `${today}-day-${number}-${Date.now()}`,
@@ -102,7 +137,7 @@ function todaysWorkout() {
       exercises: [],
       transient: true
     };
-    todayDraft = workout;
+    draftWorkout = workout;
   }
 
   return workout;
@@ -293,7 +328,7 @@ function parseHeight(text) {
 }
 
 function getCheckIn(
-  date = todaysWorkout().date
+  date = activeWorkout().date
 ) {
   state.checkIns ||= [];
 
@@ -306,7 +341,7 @@ function getCheckIn(
 
 function upsertCheckIn(
   patch,
-  date = todaysWorkout().date
+  date = activeWorkout().date
 ) {
   state.checkIns ||= [];
 
@@ -355,7 +390,7 @@ function render() {
     calculateStats(state);
 
   const workout =
-    todaysWorkout();
+    activeWorkout();
 
   const achievements =
     achievementSummary(
@@ -373,6 +408,8 @@ function render() {
 
   $('#levelValue').textContent =
     stats.level;
+
+  renderViewBanner();
 
   $('#heroTitle').textContent =
     workout.title;
@@ -675,7 +712,7 @@ function renderProfile() {
 
 function renderCheckIn() {
   const date =
-    todaysWorkout().date;
+    activeWorkout().date;
 
   const c =
     getCheckIn(date);
@@ -776,7 +813,7 @@ function renderCheckIn() {
 
 function renderNutrition() {
   const workoutDate =
-    todaysWorkout().date;
+    activeWorkout().date;
 
   const entries =
     (
@@ -906,122 +943,55 @@ function renderNutrition() {
         `;
 }
 
+function mondayOf(iso) {
+  const jsDay = dateFromISO(iso).getDay();
+  return addDays(iso, -((jsDay + 6) % 7));
+}
+
 function renderWeek() {
-  const labels = [
-    'Mon',
-    'Tue',
-    'Wed',
-    'Thu',
-    'Fri',
-    'Sat',
-    'Sun'
-  ];
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const monday = mondayOf(localDateISO());
+  const weekDates = labels.map((_, index) => addDays(monday, index));
+  const weekSet = new Set(weekDates);
 
-  const today =
-    new Date();
-
-  today.setHours(
-    12,
-    0,
-    0,
-    0
+  const loggedWorkouts = state.workouts.filter(
+    w => Array.isArray(w.exercises) && w.exercises.length > 0
   );
+  const workoutDates = new Set(loggedWorkouts.map(w => w.date));
 
-  const jsDay =
-    today.getDay();
+  $('#weekGrid').innerHTML = labels
+    .map((label, index) => {
+      const active = workoutDates.has(weekDates[index]);
+      return `
+        <div class="day ${active ? 'active' : ''}">
+          <strong>${label}</strong>
+          ${active ? '✓' : '·'}
+        </div>
+      `;
+    })
+    .join('');
 
-  const daysSinceMonday =
-    (jsDay + 6) % 7;
+  // Campaign week number, counted from the Monday of the first logged workout.
+  const firstDate = loggedWorkouts.map(w => w.date).sort()[0];
+  const weekNumber = firstDate
+    ? Math.max(1, Math.round((dateFromISO(monday) - dateFromISO(mondayOf(firstDate))) / (7 * 86400000)) + 1)
+    : 1;
+  const rangeFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+  $('#weekLabel').textContent =
+    `Week ${weekNumber} · ${rangeFormat.format(dateFromISO(weekDates[0]))}–${rangeFormat.format(dateFromISO(weekDates[6]))}`;
 
-  const monday =
-    new Date(today);
+  const thisWeek = loggedWorkouts.filter(w => weekSet.has(w.date));
+  const exercises = thisWeek.flatMap(w => w.exercises);
+  const sets = exercises
+    .filter(e => e.type === 'strength')
+    .reduce((n, e) => n + (Number(e.sets) || 0), 0);
+  const cardio = exercises
+    .filter(e => e.type === 'cardio')
+    .reduce((n, e) => n + (Number(e.duration) || 0), 0);
+  const days = new Set(thisWeek.map(w => w.date)).size;
 
-  monday.setDate(
-    today.getDate() -
-    daysSinceMonday
-  );
-
-  const workoutDates =
-    new Set(
-      state.workouts
-        .filter(
-          w =>
-            Array.isArray(
-              w.exercises
-            ) &&
-            w.exercises
-              .length > 0
-        )
-        .map(
-          w => w.date
-        )
-    );
-
-  $('#weekGrid')
-    .innerHTML =
-      labels
-        .map(
-          (
-            label,
-            index
-          ) => {
-            const date =
-              new Date(
-                monday
-              );
-
-            date.setDate(
-              monday.getDate() +
-              index
-            );
-
-            const dateISO =
-              localDateISO(
-                date
-              );
-
-            const active =
-              workoutDates.has(
-                dateISO
-              );
-
-            return `
-              <div
-                class="day ${
-                  active
-                    ? 'active'
-                    : ''
-                }"
-              >
-                <strong>
-                  ${label}
-                </strong>
-
-                ${
-                  active
-                    ? '✓'
-                    : '·'
-                }
-              </div>
-            `;
-          }
-        )
-        .join('');
-
-  const stats =
-    calculateStats(state);
-
-  $('#weeklySummary')
-    .textContent =
-      `${stats.workouts} adventure${
-        stats.workouts === 1
-          ? ''
-          : 's'
-      } logged · ${
-        stats.strengthSets
-      } strength sets · ${
-        stats.cardio
-      } cardio minutes.`;
+  $('#weeklySummary').textContent =
+    `This week: ${days} adventure${days === 1 ? '' : 's'} · ${sets} strength sets · ${cardio} cardio minutes.`;
 }
 
 function renderChronicle() {
@@ -1125,7 +1095,7 @@ function renderChronicle() {
 
 function renderQuests(stats) {
   const workout =
-    todaysWorkout();
+    activeWorkout();
 
   const exerciseCount =
     (
@@ -1607,23 +1577,23 @@ function saveExercise(ev) {
     $('#exerciseEditIndex')
       .value;
 
-  const activeWorkout = todaysWorkout();
-  if (activeWorkout.transient) {
-    delete activeWorkout.transient;
-    state.workouts.push(activeWorkout);
-    todayDraft = null;
+  const targetWorkout = activeWorkout();
+  if (targetWorkout.transient) {
+    delete targetWorkout.transient;
+    state.workouts.push(targetWorkout);
+    draftWorkout = null;
   }
 
   if (editIndex !== '') {
-    activeWorkout
+    targetWorkout
       .exercises[
         +editIndex
       ] = mergeEditedExercise(
-        activeWorkout.exercises[+editIndex],
+        targetWorkout.exercises[+editIndex],
         entry
       );
   } else {
-    activeWorkout
+    targetWorkout
       .exercises.push(
         entry
       );
@@ -1747,7 +1717,7 @@ function saveFood(ev) {
       `food-${Date.now()}`,
 
     date:
-      todaysWorkout().date,
+      activeWorkout().date,
 
     name,
 
@@ -2119,6 +2089,11 @@ function createNewWorkout(ev) {
       .value ||
     localDateISO();
 
+  if (dateValue > localDateISO()) {
+    toast('📅 Adventures can’t be logged for future dates.');
+    return;
+  }
+
   const day = weekdayName(dateValue);
 
   const time =
@@ -2141,7 +2116,7 @@ function createNewWorkout(ev) {
   if (existingWorkout) {
     $('#newWorkoutDialog').close();
     toast(`📅 ${dateValue} already has a workout. Opening that record instead.`);
-    render();
+    setViewDate(dateValue);
     return;
   }
 
@@ -2186,7 +2161,7 @@ function createNewWorkout(ev) {
     '🗺️ New adventure started!'
   );
 
-  render();
+  setViewDate(dateValue);
 
   setTimeout(
     () =>
@@ -2344,6 +2319,9 @@ function bindAppEvents() {
               now
             );
 
+        // Adventures can be backfilled, but not scheduled in the future.
+        $('#newWorkoutDate').max = localDateISO(now);
+
         $('#newWorkoutTime')
           .value =
             now.toLocaleTimeString(
@@ -2487,6 +2465,12 @@ export async function startFitQuest() {
     if (event.detail?.source !== 'app') void reloadState();
   });
   window.addEventListener('fitquest:remote-update', () => void reloadState());
+  // Workout History can ask to open a specific day.
+  window.addEventListener('fitquest:open-date', event => {
+    setViewDate(event.detail?.date);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  document.documentElement.dataset.activeDate = activeDate();
 
   appStarted = true;
 

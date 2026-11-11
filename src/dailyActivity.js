@@ -1,5 +1,5 @@
 import { readSave, writeSave } from './lib/storage.js';
-import { $, localDateISO } from './lib/dom.js';
+import { $, localDateISO, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 const DAILY_STEP_BADGES = [
@@ -12,11 +12,7 @@ const DAILY_STEP_BADGES = [
 let busy = false;
 
 function styles() {
-  if ($('#fitquestActivityStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestActivityStyles';
-  style.textContent = `
+  injectStyles('fitquestActivityStyles', `
     .fitquest-activity-card {
       padding: 24px;
       border-radius: 24px;
@@ -227,9 +223,7 @@ function styles() {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
 function ensureCheckIn(data, date) {
@@ -601,17 +595,9 @@ async function save() {
 function boot() {
   styles();
 
-  let attempts = 0;
-  const timer = setInterval(() => {
-    attempts++;
-
-    if ($('#appRoot') && !$('#appRoot').hidden) {
-      clearInterval(timer);
-      install();
-      void render();
-    } else if (attempts > 120) {
-      clearInterval(timer);
-    }
+  whenReady(() => appVisible(), () => {
+    install();
+    void render();
   }, 120);
 
   window.addEventListener('fitquest:navigation', event => {

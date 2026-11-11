@@ -38,3 +38,33 @@ export function toast(message, duration = 2600) {
   clearTimeout(window.__fitquestToast);
   window.__fitquestToast = setTimeout(() => el.classList.remove('show'), duration);
 }
+
+// Add a module's stylesheet to <head> once.
+export function injectStyles(id, css) {
+  if (document.getElementById(id)) return;
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+// True once app.js has loaded the save and revealed the app.
+export const appVisible = () => {
+  const root = document.getElementById('appRoot');
+  return Boolean(root && !root.hidden);
+};
+
+// Run `onReady` once `isReady()` passes, checking every 120 ms (up to ~17 s).
+// Modules use this to wait for the app or a screen to exist before mounting.
+export function whenReady(isReady, onReady, attempts = 140) {
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries++;
+    if (isReady()) {
+      clearInterval(timer);
+      onReady();
+    } else if (tries > attempts) {
+      clearInterval(timer);
+    }
+  }, 120);
+}

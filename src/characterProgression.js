@@ -1,7 +1,7 @@
 import { readSave, writeSave } from './lib/storage.js';
 import { calculateStats } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
-import { $ } from './lib/dom.js';
+import { $, injectStyles, whenReady } from './lib/dom.js';
 
 
 const CLASSES = [
@@ -104,11 +104,7 @@ let activeTab = 'classes';
 let rewardsExpanded = false;
 
 function styles() {
-  if ($('#fitquestCharacterProgressionStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestCharacterProgressionStyles';
-  style.textContent = `
+  injectStyles('fitquestCharacterProgressionStyles', `
     /* =========================================================
        CHARACTER HUB
        Presentation only. Existing progression/save rules stay put.
@@ -835,9 +831,7 @@ function styles() {
         font-size: 14px;
       }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
 function context(data) {
@@ -1323,18 +1317,9 @@ async function renderFromSave() {
 function boot() {
   styles();
 
-  let attempts = 0;
-
-  const timer = setInterval(() => {
-    attempts++;
-
-    if ($('#fitquestScreenGrid-character')) {
-      clearInterval(timer);
-      void renderFromSave();
-    } else if (attempts > 140) {
-      clearInterval(timer);
-    }
-  }, 120);
+  whenReady(() => $('#fitquestScreenGrid-character'), () => {
+    void renderFromSave();
+  });
 
   // Any save (app, loot, boss hits, RPG updates) or another tab can change the sheet.
   let refreshTimer = null;

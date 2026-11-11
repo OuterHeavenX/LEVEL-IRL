@@ -1,7 +1,7 @@
 import { readSave, writeSave } from './lib/storage.js';
 import { calculateStats, workoutBattlePower, completedStreakAsOf } from './lib/progression.js';
 import { achievementSummary } from './lib/achievements.js';
-import { $, localDateISO, reducedMotion } from './lib/dom.js';
+import { $, localDateISO, reducedMotion, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 const STREAK_MILESTONES = new Set([3, 7, 14, 30, 60, 100, 180, 365]);
@@ -60,11 +60,7 @@ let modalOpen = false;
 
 
 function styles() {
-  if ($('#fitquestJuiceStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestJuiceStyles';
-  style.textContent = `
+  injectStyles('fitquestJuiceStyles', `
     .fitquest-xp-float {
       position: fixed;
       z-index: 130000;
@@ -509,9 +505,7 @@ function styles() {
         animation: none !important;
       }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
 function hash(text = '') {
@@ -1324,22 +1318,9 @@ function boot() {
   styles();
   watchCompletionOverlay();
 
-  let attempts = 0;
-
-  const timer = setInterval(() => {
-    attempts++;
-
-    if (
-      $('#appRoot') &&
-      !$('#appRoot').hidden &&
-      $('#fitquestScreenHost')
-    ) {
-      clearInterval(timer);
-      void baseline();
-    } else if (attempts > 140) {
-      clearInterval(timer);
-    }
-  }, 120);
+  whenReady(() => appVisible() && $('#fitquestScreenHost'), () => {
+    void baseline();
+  });
 
   window.addEventListener('fitquest:saved', () => {
     scheduleCompare(350);

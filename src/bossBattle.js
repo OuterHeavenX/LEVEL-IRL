@@ -2,7 +2,7 @@ import './navigation.js';
 import './dailyActivity.js';
 import { readSave, writeSave } from './lib/storage.js';
 import { workoutBattlePower, completedStreakAsOf } from './lib/progression.js';
-import { $, localDateISO } from './lib/dom.js';
+import { $, localDateISO, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 const BOSSES = [
@@ -19,11 +19,7 @@ let strikeBusy = false;
 
 
 function styles() {
-  if ($('#fitquestBossStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestBossStyles';
-  style.textContent = `
+  injectStyles('fitquestBossStyles', `
     .fitquest-boss-card {
       margin: 22px 0;
       padding: 24px;
@@ -196,9 +192,7 @@ function styles() {
       .fitquest-boss-head { flex-direction: column; }
       .fitquest-boss-grid { grid-template-columns: 1fr; }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
 function ensureBoss(data) {
@@ -730,21 +724,8 @@ async function refresh() {
 function boot() {
   styles();
 
-  let attempts = 0;
-
-  const timer = setInterval(() => {
-    attempts++;
-
-    if (
-      $('#appRoot') &&
-      !$('#appRoot').hidden &&
-      $('.stats-grid')
-    ) {
-      clearInterval(timer);
-      void refresh();
-    } else if (attempts > 120) {
-      clearInterval(timer);
-    }
+  whenReady(() => appVisible() && $('.stats-grid'), () => {
+    void refresh();
   }, 120);
 
   [

@@ -46,6 +46,9 @@ function recoverDay2Workout(data) {
   data.ui ||= {};
   data.ui.migrations ||= {};
   if (data.ui.migrations.day2RecoveryV1) return data;
+  // One-time repair for an early save. Mark it checked either way so it never
+  // touches workouts logged on these dates later (e.g. via a past-date adventure).
+  data.ui.migrations.day2RecoveryV1 = { applied: false };
   const friday = (data.workouts || []).find(w => w.date === DAY_1_DATE);
   if (!friday || !Array.isArray(friday.exercises)) return data;
   const unmatched = new Set(DAY_1_EXERCISES);
@@ -139,7 +142,8 @@ export async function loadSave(seed) {
     try { return mergeSave(stored, seed); }
     catch (error) { console.error('Saved campaign could not be read:', error); }
   }
-  return clone(seed);
+  // A brand-new campaign never needs the one-time repair; mark it checked now.
+  return recoverDay2Workout(clone(seed));
 }
 
 // Saves synchronously and announces it with a `fitquest:saved` event.

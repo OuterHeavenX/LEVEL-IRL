@@ -1,17 +1,13 @@
 import { seedData } from './data/defaultData.js';
 import { loadSave, writeSave } from './lib/storage.js';
 import { calculateStats } from './lib/progression.js';
-import { $, localDateISO } from './lib/dom.js';
+import { $, localDateISO, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 let busy = false;
 
 function styles() {
-  if ($('#fitquestCompletionStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestCompletionStyles';
-  style.textContent = `
+  injectStyles('fitquestCompletionStyles', `
     .fitquest-adventure-actions {
       display: flex;
       gap: 9px;
@@ -113,13 +109,13 @@ function styles() {
         min-width: 0;
       }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
+// The day the app is showing (set by app.js), defaulting to today.
 function currentWorkout(data) {
-  return (data.workouts || []).find(w => w.date === localDateISO()) || null;
+  const date = document.documentElement.dataset.activeDate || localDateISO();
+  return (data.workouts || []).find(w => w.date === date) || null;
 }
 
 function exerciseCount(workout) {
@@ -388,21 +384,13 @@ async function sync() {
 function boot() {
   styles();
 
-  let tries = 0;
-
-  const timer = setInterval(() => {
-    tries++;
-
-    if ($('#appRoot') && !$('#appRoot').hidden && inject()) {
-      clearInterval(timer);
-      void sync();
-    } else if (tries > 120) {
-      clearInterval(timer);
-    }
+  whenReady(() => appVisible() && inject(), () => {
+    void sync();
   }, 120);
 
   window.addEventListener('fitquest:remote-update', () => void sync());
   window.addEventListener('fitquest:boss-hit', () => void sync());
+  window.addEventListener('fitquest:active-date', () => void sync());
 
   window.addEventListener('fitquest:navigation', event => {
     if (event.detail?.screen === 'training' || event.detail?.screen === 'home') {
