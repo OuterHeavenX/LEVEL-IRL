@@ -1,6 +1,7 @@
 import './history.css';
 import './bossBattle.js';
-import { readSave, writeSave } from './lib/storage.js';
+import { readSave, writeSave, importBackup } from './lib/storage.js';
+import { seedData } from './data/defaultData.js';
 import { escapeHtml as esc, localDateISO, weekdayName, toast } from './lib/dom.js';
 
 async function load(){ try { return (await readSave())?.save || null; } catch(e){ console.warn('History load failed',e); return null; } }
@@ -14,12 +15,12 @@ function installUI(){
   if(document.getElementById('workoutHistorySection'))return;
   const chronicle=document.querySelector('.chronicle'); if(!chronicle)return;
   const section=document.createElement('section');section.id='workoutHistorySection';section.className='card history-panel';section.innerHTML=`
-    <div class="section-heading"><div><p class="eyebrow">CAMPAIGN ARCHIVE</p><h3>Workout History</h3></div><div class="history-head-actions"><button class="ghost mini" id="historyBackupBtn" type="button">⬇ Backup</button><span class="pill" id="historyCount">0 days</span></div></div>
+    <div class="section-heading"><div><p class="eyebrow">CAMPAIGN ARCHIVE</p><h3>Workout History</h3></div><div class="history-head-actions"><button class="ghost mini" id="historyBackupBtn" type="button">⬇ Backup</button><button class="ghost mini" id="historyImportBtn" type="button">⬆ Import</button><input type="file" id="historyImportFile" accept="application/json,.json" hidden><span class="pill" id="historyCount">0 days</span></div></div>
     <p class="muted history-help">Every set, rep, weight and cardio session is saved here. Move records between dates or download a recovery backup anytime.</p>
     <div id="historyList" class="history-list"><div class="empty-state">Loading history…</div></div>`;
   chronicle.parentNode.insertBefore(section,chronicle);
   const dialog=document.createElement('dialog');dialog.id='moveExerciseDialog';dialog.innerHTML=`<form id="moveExerciseForm"><div class="dialog-head"><div><p class="eyebrow">FIELD TRANSFER</p><h3>Move Exercise</h3></div><button type="button" class="icon-btn" id="moveExerciseClose" aria-label="Close">×</button></div><p class="muted" id="moveExerciseLabel"></p><input type="hidden" id="moveSourceWorkoutId"><input type="hidden" id="moveExerciseIndex"><label>Move to date<input id="moveExerciseDate" type="date" required></label><button class="primary" type="submit">Transfer Exercise</button><p class="dialog-tip">If that date has no adventure yet, LEVEL IRL creates one automatically.</p></form>`;document.body.appendChild(dialog);
-  document.getElementById('moveExerciseClose').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.getElementById('moveExerciseForm').addEventListener('submit',moveExercise);document.getElementById('historyBackupBtn').addEventListener('click',exportBackup);void renderHistory();
+  document.getElementById('moveExerciseClose').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.getElementById('moveExerciseForm').addEventListener('submit',moveExercise);document.getElementById('historyBackupBtn').addEventListener('click',exportBackup);document.getElementById('historyImportBtn').addEventListener('click',()=>document.getElementById('historyImportFile').click());document.getElementById('historyImportFile').addEventListener('change',importFromFile);void renderHistory();
 }
 
 async function renderHistory(){
@@ -36,6 +37,8 @@ async function changeWorkoutDate(id){const data=await load(),source=(data?.worko
 async function openMoveExercise(id,index){const data=await load(),w=(data?.workouts||[]).find(x=>x.id===id),e=w?.exercises?.[index];if(!w||!e)return;document.getElementById('moveSourceWorkoutId').value=id;document.getElementById('moveExerciseIndex').value=String(index);document.getElementById('moveExerciseDate').value=w.date||localDateISO();document.getElementById('moveExerciseLabel').textContent=`${e.name} · currently ${w.date}`;document.getElementById('moveExerciseDialog').showModal();}
 async function moveExercise(ev){ev.preventDefault();const data=await load(),id=document.getElementById('moveSourceWorkoutId').value,index=Number(document.getElementById('moveExerciseIndex').value),targetDate=document.getElementById('moveExerciseDate').value,source=(data?.workouts||[]).find(w=>w.id===id);if(!source||!targetDate||!source.exercises?.[index])return;if(targetDate===source.date){toast('📅 That exercise is already on that date.');return;}const [exercise]=source.exercises.splice(index,1),target=ensureTargetWorkout(data,targetDate);target.exercises||=[];target.exercises.push({...exercise,movedFromDate:source.date,movedAt:new Date().toISOString()});sortWorkouts(data);await save(data);document.getElementById('moveExerciseDialog').close();toast(`↪ ${exercise.name} moved to ${targetDate}.`);void renderHistory();}
 async function deleteEmptyWorkout(id){const data=await load(),w=(data?.workouts||[]).find(x=>x.id===id);if(!w||(w.exercises||[]).length)return;data.workouts=data.workouts.filter(x=>x.id!==id);await save(data);toast('🧹 Empty adventure record removed.');void renderHistory();}
+// Merge a backup file into this device's campaign (nothing is deleted).
+async function importFromFile(ev){const input=ev.target,file=input.files?.[0];input.value='';if(!file)return;if(!confirm(`Import “${file.name}”?\n\nIts workouts, meals, check-ins and campaign progress will be merged into this device. A recovery copy of the current data is kept first.`))return;try{const merged=await importBackup(await file.text(),seedData);const n=(merged.workouts||[]).length;toast(`⬆ Campaign imported · ${n} adventure${n===1?'':'s'} on record.`);}catch(e){alert(e?.message||'Import failed.');}}
 async function exportBackup(){const data=await load();if(!data){toast('No LEVEL IRL save found to back up.');return;}const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`level-irl-backup-${localDateISO()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('⬇ LEVEL IRL backup exported.');}
 
 // Keep the list current when any part of the app saves.

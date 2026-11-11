@@ -162,6 +162,55 @@ export async function writeSave(data, { source = 'module' } = {}) {
   return true;
 }
 
+// Pull the save object out of an exported backup file. Accepts a plain save
+// (the Backup button's format) or a recovery snapshot ({ savedAt, data }).
+export function parseBackup(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error('That file isn’t a LEVEL IRL backup (it isn’t valid JSON).'); }
+  const save = parsed && typeof parsed === 'object' && parsed.data && !parsed.workouts ? parsed.data : parsed;
+  const looksLikeSave = save && typeof save === 'object' &&
+    ['workouts', 'nutrition', 'checkIns'].some(key => Array.isArray(save[key]));
+  if (!looksLikeSave) throw new Error('That file doesn’t contain LEVEL IRL workouts, meals or check-ins.');
+  return save;
+}
+
+const unionById = (primary = [], secondary = []) => {
+  const seen = new Set(primary.map(item => item?.id).filter(Boolean));
+  return [...primary, ...secondary.filter(item => !item?.id || !seen.has(item.id))];
+};
+
+// Combine an imported backup with the current save without losing either:
+// workouts on the same date are merged, meals and check-ins are combined by id
+// (a check-in already present for a date keeps the imported one), and the
+// imported campaign state (bosses, loot, records, class) is used.
+export function mergeImportedSave(imported, current, seed) {
+  const base = mergeSave(imported, seed);
+  if (!current) return base;
+  const importedDates = new Set((base.checkIns || []).map(c => c.date));
+  return mergeSave({
+    ...base,
+    profile: {
+      ...current.profile,
+      ...Object.fromEntries(Object.entries(base.profile || {}).filter(([, v]) => v !== null && v !== undefined && v !== ''))
+    },
+    workouts: [...(base.workouts || []), ...(current.workouts || [])],
+    nutrition: unionById(base.nutrition, current.nutrition),
+    checkIns: unionById(base.checkIns, (current.checkIns || []).filter(c => !importedDates.has(c.date))),
+    exerciseLibrary: [...(base.exerciseLibrary || []), ...(current.exerciseLibrary || [])]
+  }, seed);
+}
+
+// Import a backup file's text: keep a recovery copy of the current save, then
+// save the merged result. Returns the merged save.
+export async function importBackup(text, seed) {
+  const imported = parseBackup(text);
+  const current = readStoredSave();
+  if (current) saveBackup(JSON.stringify(current), 'before-import');
+  const merged = mergeImportedSave(imported, current, seed);
+  if (!(await writeSave(merged))) throw new Error('LEVEL IRL couldn’t save the imported campaign.');
+  return merged;
+}
+
 // Keep other open tabs in step when one of them saves.
 window.addEventListener('storage', event => {
   if (event.key === SAVE_KEY) window.dispatchEvent(new CustomEvent('fitquest:remote-update'));
