@@ -361,8 +361,8 @@ function inject() {
   end.className = 'end-adventure-btn';
   end.textContent = '🏁 End Adventure';
 
-  wrap.append(strike, end);
   add.insertAdjacentElement('beforebegin', wrap);
+  wrap.append(strike, end, add);
 
   strike.addEventListener('click', submitStrike);
   end.addEventListener('click', endAdventure);

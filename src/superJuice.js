@@ -113,7 +113,10 @@ function installSoundToggle() {
     button.setAttribute('aria-label', button.title);
     if (!muted) sound('success');
   });
-  document.body.appendChild(button);
+  // Sit in the header beside the level badge; fall back to floating if it's missing.
+  const level = $('#levelChip');
+  if (level) level.insertAdjacentElement('beforebegin', button);
+  else document.body.appendChild(button);
 }
 
 function staggerCards() {

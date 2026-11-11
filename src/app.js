@@ -1,4 +1,5 @@
 import './styles.css';
+import './layout.css';
 import { seedData } from './data/defaultData.js';
 import {
   loadSave,

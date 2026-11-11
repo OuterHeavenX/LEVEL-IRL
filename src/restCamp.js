@@ -8,6 +8,7 @@ async function fetchJson(url) {
   if (!response.ok || data?.ok === false) {
     throw new Error(data?.error || `Request failed (${response.status}).`);
   }
+  if (!data) throw new Error('The Bible service isn’t reachable from this build.');
   return data;
 }
 
