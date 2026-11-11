@@ -13,7 +13,7 @@
 .history-day-head small{color:var(--muted);font-size:10px;margin-top:3px}
 .history-status{flex:0 0 auto;font-size:9px;font-weight:900;letter-spacing:.08em;color:#8fe4cf;background:rgba(68,215,182,.1);border:1px solid rgba(68,215,182,.2);border-radius:999px;padding:5px 8px}
 .history-empty .history-status{color:#9aa6c3;background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08)}
-.history-date-editor{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:end;gap:8px;margin:10px 0 4px}
+.history-date-editor{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-flow:column;grid-auto-columns:auto;align-items:end;gap:8px;margin:10px 0 4px}
 .history-date-editor label{margin:0}
 .history-date-editor input{margin-top:4px}
 .history-date-editor .ghost{height:42px;margin:0}
@@ -30,7 +30,7 @@
 #moveExerciseDialog form{padding:21px}
 @media(max-width:680px){
   .history-day-head{align-items:flex-start}
-  .history-date-editor{grid-template-columns:1fr 1fr}
+  .history-date-editor{grid-template-columns:1fr 1fr;grid-auto-flow:row}
   .history-date-editor label{grid-column:1/-1}
   .history-head-actions{gap:5px}
 }

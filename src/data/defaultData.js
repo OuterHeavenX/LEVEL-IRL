@@ -29,23 +29,5 @@ export const seedData = {
   nutrition: [],
   checkIns: [],
   ui: { stealthMode: false },
-  workouts: [
-    {
-      id: '2026-07-31-day-1',
-      date: '2026-07-31',
-      day: 'Friday',
-      title: 'Day 1: The Journey Begins',
-      startTime: 'Evening',
-      startTimeExact: null,
-      note: 'First workout of the campaign. Felt active and alive after cardio.',
-      exercises: [
-        { type: 'cardio', name: 'Treadmill', duration: 20, icon: '🏃', xp: 40 },
-        { type: 'strength', name: 'Bicep Curl', sets: 3, reps: 10, weight: null, icon: '💪', xp: 28 },
-        { type: 'strength', name: 'Shoulder Press', sets: 3, reps: 10, weight: null, icon: '🏋️', xp: 28 },
-        { type: 'strength', name: 'Vertical Row', sets: 3, reps: 10, weight: null, icon: '🛡️', xp: 28 },
-        { type: 'strength', name: 'Seated Leg Curl', sets: 3, reps: 10, weight: null, icon: '🦵', xp: 28 },
-        { type: 'strength', name: 'Deltoid Fly', sets: 3, reps: 10, weight: null, icon: '🪽', xp: 28 }
-      ]
-    }
-  ]
+  workouts: []
 };

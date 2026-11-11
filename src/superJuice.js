@@ -1,4 +1,4 @@
-import { $, $$, reducedMotion } from './lib/dom.js';
+import { $, $$, reducedMotion, injectStyles } from './lib/dom.js';
 
 let audioContext = null;
 const MUTE_KEY = 'fitquest-sound-muted';
@@ -40,9 +40,7 @@ function sound(kind) {
 }
 
 function styles() {
-  const style = document.createElement('style');
-  style.id = 'fitquestSuperJuiceStyles';
-  style.textContent = `
+  injectStyles('fitquestSuperJuiceStyles', `
     body{overscroll-behavior:none}
     body::after{content:"";position:fixed;inset:-30%;z-index:-1;pointer-events:none;background:conic-gradient(from 0deg at 50% 50%,transparent,#7f63ff0c,transparent,#42d9bd0b,transparent);animation:fqAurora 24s linear infinite}
     @keyframes fqAurora{to{transform:rotate(360deg)}}
@@ -70,8 +68,7 @@ function styles() {
     .primary:active,.ghost:active,.new-workout:active,.fitquest-boss-strike:active,.finish-adventure-btn:active,.end-adventure-btn:active{transform:scale(.96);filter:brightness(1.2)}
     @media(min-width:721px){#fitquestSoundToggle{right:18px;top:auto;bottom:18px}}
     @media(prefers-reduced-motion:reduce){body::after,.fitquest-screen.active>*,.fitquest-score-chart *{animation:none!important}.card,.history-day{transition:none!important}}
-  `;
-  document.head.appendChild(style);
+  `);
 }
 
 function ripple(event) {

@@ -1,5 +1,5 @@
 import { readSave } from './lib/storage.js';
-import { $, localDateISO, addDays } from './lib/dom.js';
+import { $, localDateISO, addDays, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 
 let selectedRange = 30;
@@ -38,11 +38,7 @@ function formatNumber(value) {
 }
 
 function styles() {
-  if ($('#fitquestProgressOverviewStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestProgressOverviewStyles';
-  style.textContent = `
+  injectStyles('fitquestProgressOverviewStyles', `
     .fitquest-overview {
       grid-column: 1 / -1;
       padding: 24px;
@@ -419,9 +415,7 @@ function styles() {
         height: 125px;
       }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
 function install() {
@@ -1024,23 +1018,10 @@ function scheduleRefresh(delay = 180) {
 function boot() {
   styles();
 
-  let attempts = 0;
-
-  const timer = setInterval(() => {
-    attempts++;
-
-    if (
-      $('#appRoot') &&
-      !$('#appRoot').hidden &&
-      $('#fitquestScreenGrid-progress')
-    ) {
-      clearInterval(timer);
-      install();
-      void refresh();
-    } else if (attempts > 140) {
-      clearInterval(timer);
-    }
-  }, 120);
+  whenReady(() => appVisible() && $('#fitquestScreenGrid-progress'), () => {
+    install();
+    void refresh();
+  });
 
   window.addEventListener('fitquest:navigation', event => {
     if (event.detail?.screen === 'progress') {

@@ -4,7 +4,7 @@ import './juiceEngine.js';
 import './superJuice.js';
 import './restCamp.js';
 import './characterProgression.js';
-import { $, $$ } from './lib/dom.js';
+import { $, $$, injectStyles, appVisible, whenReady } from './lib/dom.js';
 
 const SCREENS = [
   { id: 'home', label: 'Home', icon: '🏠' },
@@ -20,11 +20,7 @@ let observer = null;
 let arrangeTimer = null;
 
 function styles() {
-  if ($('#fitquestNavigationStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'fitquestNavigationStyles';
-  style.textContent = `
+  injectStyles('fitquestNavigationStyles', `
     :root {
       --fq-nav-height: 74px;
     }
@@ -407,9 +403,7 @@ function styles() {
         min-width: 64px !important;
       }
     }
-  `;
-
-  document.head.appendChild(style);
+  `);
 }
 
 function titleFor(id) {
@@ -699,56 +693,42 @@ function scheduleArrange() {
 function boot() {
   styles();
 
-  let attempts = 0;
+  whenReady(() => appVisible() && $('#appRoot main'), () => {
+    makeShell();
+    arrange();
 
-  const timer = setInterval(() => {
-    attempts++;
+    let saved = 'home';
 
-    if (
-      $('#appRoot') &&
-      !$('#appRoot').hidden &&
-      $('#appRoot main')
-    ) {
-      clearInterval(timer);
+    try {
+      saved =
+        sessionStorage.getItem('fitquest-active-screen') ||
+        'home';
+    } catch {}
 
-      makeShell();
-      arrange();
+    showScreen(saved, { noScroll: true });
 
-      let saved = 'home';
+    observer = new MutationObserver(scheduleArrange);
 
-      try {
-        saved =
-          sessionStorage.getItem('fitquest-active-screen') ||
-          'home';
-      } catch {}
+    observer.observe($('#appRoot'), {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
 
-      showScreen(saved, { noScroll: true });
+    window.addEventListener(
+      'fitquest:activity-ready',
+      scheduleArrange
+    );
 
-      observer = new MutationObserver(scheduleArrange);
+    window.addEventListener(
+      'fitquest:boss-ready',
+      scheduleArrange
+    );
 
-      observer.observe($('#appRoot'), {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
-
-      window.addEventListener(
-        'fitquest:activity-ready',
-        scheduleArrange
-      );
-
-      window.addEventListener(
-        'fitquest:boss-ready',
-        scheduleArrange
-      );
-
-      window.addEventListener(
-        'fitquest:history-ready',
-        scheduleArrange
-      );
-    } else if (attempts > 120) {
-      clearInterval(timer);
-    }
+    window.addEventListener(
+      'fitquest:history-ready',
+      scheduleArrange
+    );
   }, 120);
 }
 
