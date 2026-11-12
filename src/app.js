@@ -26,6 +26,7 @@ import {
   escapeHtml,
   localDateISO,
   dateFromISO,
+  addDays,
   weekdayName,
   mondayOf,
   weekDatesOf,
@@ -88,17 +89,88 @@ async function reloadState() {
 
 // Don't clobber a value the player is typing when the screen re-renders.
 function setInputValue(input, value) {
-  if (input && input.dataset.dirty !== 'true') input.value = value;
+  if (input && input.dataset.dirty !== 'true' && document.activeElement !== input) input.value = value;
 }
 
-function clearDirty(selectors) {
+function clearDirty(selectors, { keepFocused = false } = {}) {
   selectors.forEach(selector => {
     const input = $(selector);
-    if (input) delete input.dataset.dirty;
+    if (input && !(keepFocused && document.activeElement === input)) delete input.dataset.dirty;
   });
 }
 
-const activeDate = () => viewDate || localDateISO();
+// The check-in saves itself shortly after typing stops, so closing the app never loses it.
+let checkInTimer = null;
+
+function queueCheckInSave() {
+  clearTimeout(checkInTimer);
+  checkInTimer = setTimeout(() => {
+    checkInTimer = null;
+    saveCheckIn({ quiet: true });
+  }, 900);
+}
+
+function flushCheckInSave() {
+  if (checkInTimer === null) return;
+  clearTimeout(checkInTimer);
+  checkInTimer = null;
+  saveCheckIn({ quiet: true });
+}
+
+// An unfinished move survives a closed dialog, a reload or the app being killed.
+const MOVE_DRAFT_KEY = 'fitquest-move-draft';
+const MOVE_FIELDS = [
+  'Name',
+  'Type',
+  'Icon',
+  'Sets',
+  'Reps',
+  'Weight',
+  'Duration',
+  'Distance',
+  'DistanceUnit'
+];
+
+function readMoveDraft() {
+  try {
+    return JSON.parse(localStorage.getItem(MOVE_DRAFT_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function storeMoveDraft() {
+  const fields = Object.fromEntries(MOVE_FIELDS.map(f => [f, $(`#exercise${f}`).value]));
+  try {
+    localStorage.setItem(MOVE_DRAFT_KEY, JSON.stringify({ date: activeDate(), fields }));
+  } catch {}
+}
+
+function clearMoveDraft() {
+  try {
+    localStorage.removeItem(MOVE_DRAFT_KEY);
+  } catch {}
+}
+
+const hasUnsavedEntry = dialog => dialog?.querySelector('form')?.dataset.changed === 'true';
+
+// Closing a dialog that holds a typed entry asks first instead of throwing it away.
+function closeDialog(dialog) {
+  if (!dialog) return;
+  const entry = { exerciseDialog: 'move', foodDialog: 'food' }[dialog.id];
+  if (entry && hasUnsavedEntry(dialog)) {
+    if (confirm(`Save this ${entry} before closing?\n\nCancel throws it away.`)) {
+      dialog.querySelector('form').requestSubmit();
+      return;
+    }
+    if (dialog.id === 'exerciseDialog') clearMoveDraft();
+  }
+  dialog.close();
+}
+
+function activeDate() {
+  return viewDate || localDateISO();
+}
 
 // Switch the screen to another day (or back to today) and tell other modules.
 function setViewDate(date) {
@@ -107,6 +179,8 @@ function setViewDate(date) {
     toast('📅 Future dates can’t be opened.');
     return;
   }
+  // Values still waiting to autosave belong to the day they were typed on.
+  flushCheckInSave();
   const previous = viewDate || renderedToday;
   viewDate = date && date !== today ? date : null;
   renderedToday = today;
@@ -759,6 +833,17 @@ function openExerciseDialog(exercise = null, editIndex = null) {
 
   $('#exerciseDistanceUnit').value = exercise?.distanceUnit || 'mi';
 
+  const form = $('#exerciseForm');
+  form.dataset.changed = '';
+  const draft = !isLoggedExercise && !exercise ? readMoveDraft() : null;
+  if (draft?.date === activeDate() && draft.fields?.Name) {
+    MOVE_FIELDS.forEach(f => {
+      if (draft.fields[f] != null) $(`#exercise${f}`).value = draft.fields[f];
+    });
+    form.dataset.changed = 'true';
+    $('#exerciseDialogTitle').textContent = 'Finish Your Move';
+  }
+
   updateExerciseFields();
 
   $('#exerciseDialog').showModal();
@@ -869,6 +954,7 @@ function saveExercise(ev) {
     toast(editing ? `✎ ${name} updated` : `⚔️ ${name} logged!`);
   }
 
+  if (!editing) clearMoveDraft();
   $('#exerciseDialog').close();
 
   render();
@@ -1068,7 +1154,7 @@ function saveIdentity() {
   render();
 }
 
-function saveCheckIn() {
+function saveCheckIn({ quiet = false } = {}) {
   const hRaw = $('#dailySleepHours').value;
 
   const mRaw = $('#dailySleepMinutes').value;
@@ -1095,9 +1181,9 @@ function saveCheckIn() {
 
   upsertCheckIn(patch);
 
-  toast('📡 Daily recovery intel saved');
+  if (!quiet) toast('📡 Daily recovery intel saved');
 
-  clearDirty(CHECK_IN_INPUTS);
+  clearDirty(CHECK_IN_INPUTS, { keepFocused: quiet });
 
   render();
   window.dispatchEvent(new CustomEvent('fitquest:checkin-saved'));
@@ -1188,7 +1274,11 @@ function bindAppEvents() {
 
   $('#saveIdentityBtn').addEventListener('click', saveIdentity);
 
-  $('#saveCheckInBtn').addEventListener('click', saveCheckIn);
+  $('#saveCheckInBtn').addEventListener('click', () => {
+    clearTimeout(checkInTimer);
+    checkInTimer = null;
+    saveCheckIn();
+  });
 
   $$('[data-water-add]').forEach(b => b.addEventListener('click', () => addWater(+b.dataset.waterAdd)));
 
@@ -1242,14 +1332,35 @@ function bindAppEvents() {
   document.addEventListener('click', ev => {
     const closeBtn = ev.target.closest?.('.dialog-close');
     if (closeBtn) {
-      closeBtn.closest('dialog')?.close();
+      closeDialog(closeBtn.closest('dialog'));
       return;
     }
-    if (ev.target instanceof HTMLDialogElement) ev.target.close();
+    if (ev.target instanceof HTMLDialogElement) {
+      // A tap beside a half-filled form (often just to hide the keyboard) must not discard it.
+      if (hasUnsavedEntry(ev.target)) document.activeElement?.blur?.();
+      else ev.target.close();
+    }
+  });
+
+  ['#exerciseDialog', '#foodDialog'].forEach(selector => {
+    const dialog = $(selector);
+    dialog.addEventListener('cancel', ev => {
+      if (!hasUnsavedEntry(dialog)) return;
+      ev.preventDefault();
+      closeDialog(dialog);
+    });
+    dialog.querySelector('form').addEventListener('input', () => {
+      dialog.querySelector('form').dataset.changed = 'true';
+      if (selector === '#exerciseDialog' && !editTarget) storeMoveDraft();
+    });
   });
 
   $('#exerciseDialog').addEventListener('close', () => {
     editTarget = null;
+    $('#exerciseForm').dataset.changed = '';
+  });
+  $('#foodDialog').addEventListener('close', () => {
+    $('#foodForm').dataset.changed = '';
   });
 
   $('#classifiedBtn').addEventListener('click', () => {
@@ -1284,11 +1395,14 @@ async function start() {
 
   bindAppEvents();
 
-  CHECK_IN_INPUTS.forEach(selector =>
-    $(selector)?.addEventListener('input', event => {
-      event.target.dataset.dirty = 'true';
-    })
-  );
+  CHECK_IN_INPUTS.forEach(selector => {
+    const input = $(selector);
+    input?.addEventListener('input', () => {
+      input.dataset.dirty = 'true';
+      queueCheckInSave();
+    });
+    input?.addEventListener('change', flushCheckInSave);
+  });
 
   window.addEventListener('fitquest:saved', event => {
     if (event.detail?.source !== 'app') void reloadState();
@@ -1301,8 +1415,10 @@ async function start() {
   });
   // A page left open overnight moves on to the new day when it is shown again.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && localDateISO() !== renderedToday) setViewDate(viewDate);
+    if (document.visibilityState === 'hidden') flushCheckInSave();
+    else if (localDateISO() !== renderedToday) setViewDate(viewDate);
   });
+  window.addEventListener('pagehide', flushCheckInSave);
   document.documentElement.dataset.activeDate = viewDate || '';
 
   try {
@@ -1314,6 +1430,22 @@ async function start() {
     const appRoot = $('#appRoot');
     if (appRoot) appRoot.hidden = false;
   }
+
+  resumeMoveDraft();
+}
+
+// Reopen a move that was being typed when the app closed, on the day it belongs to.
+function resumeMoveDraft() {
+  const draft = readMoveDraft();
+  if (!draft?.fields?.Name) return;
+  const today = localDateISO();
+  if (!draft.date || draft.date > today || draft.date < addDays(today, -2)) {
+    clearMoveDraft();
+    return;
+  }
+  if (draft.date !== activeDate()) setViewDate(draft.date);
+  openExerciseDialog();
+  toast('↩︎ Your unsaved move is back. Log it or close it.');
 }
 
 void start();

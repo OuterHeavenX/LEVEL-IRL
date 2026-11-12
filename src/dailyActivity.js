@@ -338,23 +338,47 @@ function install() {
   host.appendChild(section);
   host.appendChild(week);
 
-  $('#fitquestSaveActivity').addEventListener('click', save);
-  ACTIVITY_INPUTS.forEach(sel => $(sel)?.addEventListener('input', event => {
-    event.target.dataset.dirty = 'true';
-  }));
+  $('#fitquestSaveActivity').addEventListener('click', () => flushAutosave());
+  ACTIVITY_INPUTS.forEach(sel => {
+    const input = $(sel);
+    input?.addEventListener('input', () => {
+      input.dataset.dirty = 'true';
+      queueAutosave();
+    });
+    input?.addEventListener('change', () => flushAutosave(true));
+  });
   return true;
 }
 
-// Typed-but-unsaved values survive re-renders from navigation or other modules' saves.
+// Typed-but-unsaved values, and the field being typed in, survive re-renders.
 function setInputValue(input, value) {
-  if (input && input.dataset.dirty !== 'true') input.value = value;
+  if (input && input.dataset.dirty !== 'true' && document.activeElement !== input) input.value = value;
 }
 
-function clearDirty() {
+function clearDirty({ keepFocused = false } = {}) {
   ACTIVITY_INPUTS.forEach(sel => {
     const input = $(sel);
-    if (input) delete input.dataset.dirty;
+    if (input && !(keepFocused && document.activeElement === input)) delete input.dataset.dirty;
   });
+}
+
+// Activity saves itself shortly after typing stops, so nothing is lost if the app is closed.
+let autosaveTimer = null;
+
+function queueAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    void save({ quiet: true });
+  }, 900);
+}
+
+function flushAutosave(quiet = false) {
+  const pending = autosaveTimer !== null;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  if (quiet && !pending && !ACTIVITY_INPUTS.some(sel => $(sel)?.dataset.dirty === 'true')) return;
+  void save({ quiet });
 }
 
 function renderAchievements(data) {
@@ -428,8 +452,11 @@ async function render() {
   }
 }
 
-async function save() {
-  if (busy) return;
+async function save({ quiet = false } = {}) {
+  if (busy) {
+    queueAutosave();
+    return;
+  }
   busy = true;
 
   const message = $('#fitquestActivityMessage');
@@ -462,14 +489,14 @@ async function save() {
 
     const ok = writeSave(data);
     if (!ok) throw new Error('Unable to save activity.');
-    clearDirty();
+    clearDirty({ keepFocused: quiet });
     window.dispatchEvent(new CustomEvent('fitquest:daily-activity-saved'));
 
     if (message) {
       message.className = 'fitquest-activity-message success';
       message.textContent = unlocked.length
         ? `Saved. Achievement unlocked: ${unlocked.map(item => `${item.icon} ${item.name}`).join(', ')}`
-        : 'Daily activity saved.';
+        : quiet ? 'Saved automatically.' : 'Daily activity saved.';
     }
 
     await render();
@@ -502,7 +529,17 @@ function boot() {
     void render();
   });
 
-  window.addEventListener('fitquest:active-date', () => void render());
+  window.addEventListener('fitquest:active-date', () => {
+    if (autosaveTimer !== null) flushAutosave(true);
+    void render();
+  });
+  const flushOnLeave = () => {
+    if (autosaveTimer !== null) flushAutosave(true);
+  };
+  window.addEventListener('pagehide', flushOnLeave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnLeave();
+  });
 
   // A card left open overnight would otherwise keep editing yesterday.
   document.addEventListener('visibilitychange', () => {
